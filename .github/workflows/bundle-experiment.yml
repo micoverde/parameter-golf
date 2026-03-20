@@ -1,0 +1,33 @@
+name: bundle-experiment
+
+on:
+  workflow_dispatch:
+    inputs:
+      experiment_path:
+        description: "Path to the experiment or record folder to bundle"
+        required: true
+        type: string
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Preflight validate bundle target
+        run: python tools/contest_preflight.py "${{ inputs.experiment_path }}"
+
+      - name: Create tarball artifact
+        run: python tools/bundle_experiment.py "${{ inputs.experiment_path }}"
+
+      - name: Upload bundle artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: experiment-bundle
+          path: dist/*.tar.gz

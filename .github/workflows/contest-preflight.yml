@@ -1,0 +1,28 @@
+name: contest-preflight
+
+on:
+  push:
+    branches:
+      - main
+      - "feature/**"
+      - "bug/**"
+      - "record/**"
+  pull_request:
+
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Compile Python sources
+        run: python -m compileall train_gpt.py train_gpt_mlx.py tools experiments records
+
+      - name: Validate record and experiment folders
+        run: python tools/contest_preflight.py records experiments
