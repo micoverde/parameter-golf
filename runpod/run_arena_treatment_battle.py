@@ -53,6 +53,16 @@ def champion_metric(champion: dict[str, Any], base_key: str) -> float:
     raise KeyError(f"champion metric not found: {base_key}")
 
 
+def metric_base_key() -> str:
+    return os.environ.get("METRIC_BASE_KEY", "post_quant_val_bpb")
+
+
+def metric_loss_key() -> str:
+    if metric_base_key() == "sliding_window_val_bpb":
+        return "sliding_window_val_loss"
+    return os.environ.get("METRIC_LOSS_KEY", "post_quant_val_loss")
+
+
 def treatment_script() -> str:
     return os.environ.get("TREATMENT_SCRIPT", "runpod/smoke_seq4096_sliding_eval.sh")
 
@@ -105,18 +115,20 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     successes = [rep for rep in replicates if rep["status"] == "passed"]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
+    score_key = metric_base_key()
+    loss_key = metric_loss_key()
 
     mean_post_quant_bpb = mean_or_none(
-        [float(rep["metrics"]["post_quant_val_bpb"]) for rep in successes if "post_quant_val_bpb" in rep["metrics"]]
+        [float(rep["metrics"][score_key]) for rep in successes if score_key in rep["metrics"]]
     )
     mean_post_quant_loss = mean_or_none(
-        [float(rep["metrics"]["post_quant_val_loss"]) for rep in successes if "post_quant_val_loss" in rep["metrics"]]
+        [float(rep["metrics"][loss_key]) for rep in successes if loss_key in rep["metrics"]]
     )
     mean_total_bytes = mean_or_none(
         [float(rep["metrics"]["artifact_bytes_total"]) for rep in successes if "artifact_bytes_total" in rep["metrics"]]
     )
 
-    control_bpb = champion_metric(champion, "post_quant_val_bpb")
+    control_bpb = champion_metric(champion, score_key)
     treatment_success_rate = len(successes) / len(replicates) if replicates else 0.0
     delta_bpb = mean_post_quant_bpb - control_bpb if mean_post_quant_bpb is not None else None
 
@@ -164,7 +176,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         },
         "summary_metrics": {
             "control_post_quant_val_bpb": control_bpb,
-            "control_post_quant_val_loss": champion_metric(champion, "post_quant_val_loss"),
+            "control_post_quant_val_loss": champion_metric(champion, loss_key),
             "treatment_success_rate": treatment_success_rate,
             "treatment_mean_post_quant_val_bpb": mean_post_quant_bpb,
             "treatment_mean_post_quant_val_loss": mean_post_quant_loss,
@@ -184,6 +196,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                     "mean_total_submission_bytes": mean_total_bytes,
                     "success_rate": treatment_success_rate,
                     "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
+                    "metric_base_key": score_key,
                 },
                 "params": {
                     "train_batch_tokens": env_int("TRAIN_BATCH_TOKENS", 393216),

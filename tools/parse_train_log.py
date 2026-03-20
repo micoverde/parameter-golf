@@ -14,6 +14,9 @@ STEP_RE = re.compile(
 FINAL_RE = re.compile(
     r"final_int8_zlib_roundtrip_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
+FINAL_SLIDING_RE = re.compile(
+    r"final_sliding_window_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
 BYTES_TOTAL_RE = re.compile(r"Total submission size int8\+zlib: (?P<value>\d+) bytes")
 BYTES_MODEL_RE = re.compile(r"Serialized model int8\+zlib: (?P<value>\d+) bytes")
 BYTES_CODE_RE = re.compile(r"Code size: (?P<value>\d+) bytes")
@@ -65,6 +68,12 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
     if final_match:
         result["metrics"]["post_quant_val_loss"] = float(final_match.group("val_loss"))
         result["metrics"]["post_quant_val_bpb"] = float(final_match.group("val_bpb"))
+        result["status"] = "passed"
+
+    sliding_match = FINAL_SLIDING_RE.search(text)
+    if sliding_match:
+        result["metrics"]["sliding_window_val_loss"] = float(sliding_match.group("val_loss"))
+        result["metrics"]["sliding_window_val_bpb"] = float(sliding_match.group("val_bpb"))
         result["status"] = "passed"
 
     total_bytes = BYTES_TOTAL_RE.search(text)
