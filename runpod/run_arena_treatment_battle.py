@@ -16,11 +16,31 @@ sys.path.insert(0, str(REPO_DIR))
 
 from tools.parse_train_log import parse_train_log
 
-CHAMPION_PATH = REPO_DIR / "experiments" / "champions" / "current_champion.json"
+DEFAULT_CHAMPION_PATH = REPO_DIR / "experiments" / "champions" / "current_champion.json"
 
 
 def mean_or_none(values: list[float]) -> float | None:
     return statistics.mean(values) if values else None
+
+
+def env_int(name: str, default: int) -> int:
+    return int(os.environ.get(name, str(default)))
+
+
+def env_float(name: str, default: float) -> float:
+    return float(os.environ.get(name, str(default)))
+
+
+def champion_path() -> Path:
+    raw = os.environ.get("CHAMPION_PATH")
+    if not raw:
+        return DEFAULT_CHAMPION_PATH
+    path = Path(raw)
+    return path if path.is_absolute() else (REPO_DIR / path)
+
+
+def lane_name() -> str:
+    return os.environ.get("LANE_NAME", "smoke")
 
 
 def champion_metric(champion: dict[str, Any], base_key: str) -> float:
@@ -31,6 +51,16 @@ def champion_metric(champion: dict[str, Any], base_key: str) -> float:
     if mean_key in metrics:
         return float(metrics[mean_key])
     raise KeyError(f"champion metric not found: {base_key}")
+
+
+def metric_base_key() -> str:
+    return os.environ.get("METRIC_BASE_KEY", "post_quant_val_bpb")
+
+
+def metric_loss_key() -> str:
+    if metric_base_key() == "sliding_window_val_bpb":
+        return "sliding_window_val_loss"
+    return os.environ.get("METRIC_LOSS_KEY", "post_quant_val_loss")
 
 
 def treatment_script() -> str:
@@ -79,24 +109,26 @@ def run_one(seed: int, battle_id: str, log_dir: Path) -> dict[str, Any]:
 
 
 def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str, Any]:
-    champion = json.loads(CHAMPION_PATH.read_text(encoding="utf-8"))
+    champion = json.loads(champion_path().read_text(encoding="utf-8"))
     champion_arm = copy.deepcopy(champion["arm"])
     champion_arm["arm_id"] = "CONTROL"
     successes = [rep for rep in replicates if rep["status"] == "passed"]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
+    score_key = metric_base_key()
+    loss_key = metric_loss_key()
 
     mean_post_quant_bpb = mean_or_none(
-        [float(rep["metrics"]["post_quant_val_bpb"]) for rep in successes if "post_quant_val_bpb" in rep["metrics"]]
+        [float(rep["metrics"][score_key]) for rep in successes if score_key in rep["metrics"]]
     )
     mean_post_quant_loss = mean_or_none(
-        [float(rep["metrics"]["post_quant_val_loss"]) for rep in successes if "post_quant_val_loss" in rep["metrics"]]
+        [float(rep["metrics"][loss_key]) for rep in successes if loss_key in rep["metrics"]]
     )
     mean_total_bytes = mean_or_none(
         [float(rep["metrics"]["artifact_bytes_total"]) for rep in successes if "artifact_bytes_total" in rep["metrics"]]
     )
 
-    control_bpb = champion_metric(champion, "post_quant_val_bpb")
+    control_bpb = champion_metric(champion, score_key)
     treatment_success_rate = len(successes) / len(replicates) if replicates else 0.0
     delta_bpb = mean_post_quant_bpb - control_bpb if mean_post_quant_bpb is not None else None
 
@@ -105,10 +137,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         status = "treatment_improved" if mean_post_quant_bpb < control_bpb else "treatment_regressed"
 
     return {
-        "comparison_id": f"pg_arena_battle_{battle_id}_{treatment_slug}",
-        "title": f"Parameter Golf ARENA battle {battle_id}: champion control vs {treatment_slug} treatment",
+        "comparison_id": f"pg_arena_{lane_name()}_battle_{battle_id}_{treatment_slug}",
+        "title": f"Parameter Golf ARENA {lane_name()} battle {battle_id}: champion control vs {treatment_slug} treatment",
         "date": date.today().isoformat(),
         "arena_tier": "tier1_battle",
+        "lane_name": lane_name(),
         "control_arm": "CONTROL",
         "treatment_arm": "TREATMENT",
         "status": status,
@@ -130,18 +163,20 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "guide_source": "/tmp/plexor-main-arena-doc/docs/guides/ARENA_OPS_AND_DEVELOPMENT_GUIDE.md",
         },
         "fixture": {
-            "dataset_variant": "fineweb10B_sp1024",
-            "tokenizer_path": "./data/tokenizers/fineweb_1024_bpe.model",
-            "train_shards": int(os.environ.get("TRAIN_SHARDS", "1")),
-            "train_seq_len": 4096,
-            "iterations": int(os.environ.get("ITERATIONS", "20")),
-            "warmup_steps": int(os.environ.get("WARMUP_STEPS", "0")),
-            "max_wallclock_seconds": int(os.environ.get("MAX_WALLCLOCK_SECONDS", "0")),
+            "dataset_variant": os.environ.get("DATASET_VARIANT", "fineweb10B_sp1024"),
+            "tokenizer_path": os.environ.get("TOKENIZER_PATH", "./data/tokenizers/fineweb_1024_bpe.model"),
+            "train_shards": env_int("TRAIN_SHARDS", 1),
+            "train_seq_len": env_int("FIXTURE_TRAIN_SEQ_LEN", env_int("TRAIN_SEQ_LEN", 4096)),
+            "eval_seq_len": env_int("FIXTURE_EVAL_SEQ_LEN", env_int("EVAL_SEQ_LEN", 0)),
+            "eval_stride": env_int("EVAL_STRIDE", 64),
+            "iterations": env_int("ITERATIONS", 20),
+            "warmup_steps": env_int("WARMUP_STEPS", 0),
+            "max_wallclock_seconds": env_int("MAX_WALLCLOCK_SECONDS", 0),
             "replicates_per_arm": len(replicates),
         },
         "summary_metrics": {
             "control_post_quant_val_bpb": control_bpb,
-            "control_post_quant_val_loss": champion_metric(champion, "post_quant_val_loss"),
+            "control_post_quant_val_loss": champion_metric(champion, loss_key),
             "treatment_success_rate": treatment_success_rate,
             "treatment_mean_post_quant_val_bpb": mean_post_quant_bpb,
             "treatment_mean_post_quant_val_loss": mean_post_quant_loss,
@@ -161,17 +196,19 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                     "mean_total_submission_bytes": mean_total_bytes,
                     "success_rate": treatment_success_rate,
                     "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
+                    "metric_base_key": score_key,
                 },
                 "params": {
-                    "train_batch_tokens": 393216,
-                    "train_seq_len": 4096,
-                    "iterations": int(os.environ.get("ITERATIONS", "20")),
-                    "matrix_lr": 0.02,
-                    "scalar_lr": 0.02,
-                    "tied_embed_lr": 0.03,
-                    "muon_momentum": 0.99,
+                    "train_batch_tokens": env_int("TRAIN_BATCH_TOKENS", 393216),
+                    "train_seq_len": env_int("TRAIN_SEQ_LEN", 4096),
+                    "eval_seq_len": env_int("EVAL_SEQ_LEN", 0),
+                    "iterations": env_int("ITERATIONS", 20),
+                    "matrix_lr": env_float("MATRIX_LR", 0.02),
+                    "scalar_lr": env_float("SCALAR_LR", 0.02),
+                    "tied_embed_lr": env_float("TIED_EMBED_LR", 0.03),
+                    "muon_momentum": env_float("MUON_MOMENTUM", 0.99),
                     "eval_mode": "sliding_window" if os.environ.get("EVAL_STRIDE", "64") != "0" else "fixed_window",
-                    "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
+                    "eval_batch_seqs": env_int("EVAL_BATCH_SEQS", 64),
                     "treatment_name": treatment_slug,
                 },
                 "replicates": replicates,

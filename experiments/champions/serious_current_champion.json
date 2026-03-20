@@ -1,0 +1,37 @@
+{
+  "champion_id": "pg_arena_serious_champion_2026_03_20_wdq_single_h100",
+  "date": "2026-03-20",
+  "experiment_name": "MLFLOW ARENA 2026-03-20 Golf Serious",
+  "experiment_id": "serious-local-pending",
+  "summary_run_id": "serious-local-pending",
+  "arm_run_id": "serious-local-pending",
+  "comparison_json": "logs/serious_wdq_control_single_h100.txt",
+  "arm": {
+    "arm_id": "CONTROL",
+    "run_name": "serious_wdq_control_single_h100",
+    "status": "control_complete",
+    "metrics": {
+      "post_quant_val_bpb": 2.03139894,
+      "post_quant_val_loss": 3.42993005,
+      "sliding_window_val_bpb": 2.00698872,
+      "sliding_window_val_loss": 3.38871638,
+      "mean_total_submission_bytes": 6579188,
+      "success_rate": 1.0,
+      "eval_batch_seqs": 1
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "train_shards": 1,
+      "train_batch_tokens": 524288,
+      "train_seq_len": 2048,
+      "eval_seq_len": 1408,
+      "iterations": 20000,
+      "matrix_lr": 0.06,
+      "scalar_lr": 0.06,
+      "tied_embed_lr": 0.07,
+      "muon_momentum": 0.95,
+      "eval_mode": "sliding_window",
+      "treatment_name": "wdq_serious_control"
+    }
+  }
+}
