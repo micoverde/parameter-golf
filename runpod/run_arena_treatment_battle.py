@@ -22,13 +22,25 @@ def mean_or_none(values: list[float]) -> float | None:
     return statistics.mean(values) if values else None
 
 
+def treatment_script() -> str:
+    return os.environ.get("TREATMENT_SCRIPT", "runpod/smoke_seq4096_sliding_eval.sh")
+
+
+def treatment_name() -> str:
+    return os.environ.get("TREATMENT_NAME", "seq4096_sliding_eval")
+
+
+def treatment_target() -> str:
+    return os.environ.get("TREATMENT_TARGET", "experiments/seq4096_sliding_eval/train_gpt.py")
+
+
 def run_one(seed: int, battle_id: str, log_dir: Path) -> dict[str, Any]:
     log_path = log_dir / f"treatment_seed{seed}.log"
     env = os.environ.copy()
     env.update(
         {
             "SEED": str(seed),
-            "RUN_ID": f"arena_{battle_id}_treatment_seed{seed}",
+            "RUN_ID": f"arena_{battle_id}_{treatment_name()}_seed{seed}",
             "ITERATIONS": os.environ.get("ITERATIONS", "20"),
             "VAL_LOSS_EVERY": os.environ.get("VAL_LOSS_EVERY", "0"),
             "WARMUP_STEPS": os.environ.get("WARMUP_STEPS", "0"),
@@ -41,7 +53,7 @@ def run_one(seed: int, battle_id: str, log_dir: Path) -> dict[str, Any]:
     )
     with log_path.open("w", encoding="utf-8") as fh:
         completed = subprocess.run(
-            ["bash", "runpod/smoke_seq4096_sliding_eval.sh"],
+            ["bash", treatment_script()],
             cwd=REPO_DIR,
             env=env,
             stdout=fh,
@@ -58,6 +70,8 @@ def run_one(seed: int, battle_id: str, log_dir: Path) -> dict[str, Any]:
 def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str, Any]:
     champion = json.loads(CHAMPION_PATH.read_text(encoding="utf-8"))
     successes = [rep for rep in replicates if rep["status"] == "passed"]
+    treatment_slug = treatment_name()
+    treatment_script_target = treatment_target()
 
     mean_post_quant_bpb = mean_or_none(
         [float(rep["metrics"]["post_quant_val_bpb"]) for rep in successes if "post_quant_val_bpb" in rep["metrics"]]
@@ -78,8 +92,8 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         status = "treatment_improved" if mean_post_quant_bpb < control_bpb else "treatment_regressed"
 
     return {
-        "comparison_id": f"pg_arena_battle_{battle_id}_seq4096_sliding",
-        "title": f"Parameter Golf ARENA battle {battle_id}: champion control vs seq4096 sliding treatment",
+        "comparison_id": f"pg_arena_battle_{battle_id}_{treatment_slug}",
+        "title": f"Parameter Golf ARENA battle {battle_id}: champion control vs {treatment_slug} treatment",
         "date": date.today().isoformat(),
         "arena_tier": "tier1_battle",
         "control_arm": "CONTROL",
@@ -92,7 +106,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "branch": os.environ.get("BRANCH", "feature/arena-battle-loop"),
             "commit": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_DIR, text=True).strip(),
             "control_script": champion["arm"].get("run_name", "seq4096_control_smoke"),
-            "treatment_script": "experiments/seq4096_sliding_eval/train_gpt.py",
+            "treatment_script": treatment_script_target,
         },
         "provenance": {
             "pod_id": os.environ.get("POD_ID", ""),
@@ -126,7 +140,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             champion["arm"],
             {
                 "arm_id": "TREATMENT",
-                "run_name": f"seq4096_sliding_eval_battle_{battle_id}",
+                "run_name": f"{treatment_slug}_battle_{battle_id}",
                 "status": status,
                 "metrics": {
                     "mean_post_quant_val_bpb": mean_post_quant_bpb,
@@ -143,8 +157,9 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                     "scalar_lr": 0.02,
                     "tied_embed_lr": 0.03,
                     "muon_momentum": 0.99,
-                    "eval_mode": "sliding_window",
+                    "eval_mode": "sliding_window" if os.environ.get("EVAL_STRIDE", "64") != "0" else "fixed_window",
                     "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
+                    "treatment_name": treatment_slug,
                 },
                 "replicates": replicates,
             },
@@ -167,7 +182,7 @@ def main() -> int:
 
     replicates = [run_one(seed, battle_id, log_dir) for seed in seeds]
     summary = build_summary(battle_id, replicates)
-    out_path = REPO_DIR / "experiments" / "arena_runs" / f"{date.today().isoformat()}_{battle_id}_seq4096_sliding_battle.json"
+    out_path = REPO_DIR / "experiments" / "arena_runs" / f"{date.today().isoformat()}_{battle_id}_{treatment_name()}_battle.json"
     out_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     print(out_path.relative_to(REPO_DIR))
     return 0
