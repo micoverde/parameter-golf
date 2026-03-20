@@ -1263,7 +1263,7 @@ def main() -> None:
         log0(f"Compiling forward_logits for sliding window eval (stride={eval_stride}, seq_len={eval_sl})...")
         compiled_logits = torch.compile(base_model.forward_logits, dynamic=False)
         # Warmup compilation
-        eval_batch_seqs = 256
+        eval_batch_seqs = int(os.environ.get("EVAL_BATCH_SEQS", 256))
         warmup_x = torch.zeros(eval_batch_seqs, eval_sl, dtype=torch.int64, device=device)
         base_model.eval()
         with torch.inference_mode(), torch.autocast(device_type="cuda", dtype=torch.bfloat16):

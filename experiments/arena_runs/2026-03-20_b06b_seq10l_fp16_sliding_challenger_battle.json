@@ -1,0 +1,252 @@
+{
+  "comparison_id": "pg_arena_battle_b06b_seq10l_fp16_sliding_challenger",
+  "title": "Parameter Golf ARENA battle b06b: champion control vs seq10l_fp16_sliding_challenger treatment",
+  "date": "2026-03-20",
+  "arena_tier": "tier1_battle",
+  "control_arm": "CONTROL",
+  "treatment_arm": "TREATMENT",
+  "status": "treatment_improved",
+  "tracking_uri": "https://ca-mlflow-alpha.calmcliff-5a10adea.westus2.azurecontainerapps.io",
+  "repo": {
+    "name": "parameter-golf",
+    "fork_url": "https://github.com/micoverde/parameter-golf.git",
+    "branch": "feature/arena-battle-loop",
+    "commit": "8d2f8a3",
+    "control_script": "seq4096_control_smoke",
+    "treatment_script": "experiments/seq10l_fp16_sliding_challenger/train_gpt.py"
+  },
+  "provenance": {
+    "pod_id": "f9gvy5kbg6wdke",
+    "gpu_type": "NVIDIA H100 80GB HBM3",
+    "template_id": "y5cejece4j",
+    "image_name": "runpod/parameter-golf:latest",
+    "battle_id": "b06b",
+    "guide_source": "/tmp/plexor-main-arena-doc/docs/guides/ARENA_OPS_AND_DEVELOPMENT_GUIDE.md"
+  },
+  "fixture": {
+    "dataset_variant": "fineweb10B_sp1024",
+    "tokenizer_path": "./data/tokenizers/fineweb_1024_bpe.model",
+    "train_shards": 1,
+    "train_seq_len": 4096,
+    "iterations": 20,
+    "warmup_steps": 0,
+    "max_wallclock_seconds": 0,
+    "replicates_per_arm": 5
+  },
+  "summary_metrics": {
+    "control_post_quant_val_bpb": 3.94481757,
+    "control_post_quant_val_loss": 6.66065922,
+    "treatment_success_rate": 1.0,
+    "treatment_mean_post_quant_val_bpb": 3.463217474,
+    "treatment_mean_post_quant_val_loss": 5.847497636,
+    "treatment_mean_total_submission_bytes": 6212627.0,
+    "treatment_vs_control_delta_bpb": -0.4816000960000002,
+    "treatment_failures": 0
+  },
+  "arms": [
+    {
+      "arm_id": "CONTROL",
+      "run_name": "seq4096_control_smoke",
+      "status": "passed",
+      "metrics": {
+        "train_step20_val_loss": 6.6292,
+        "train_step20_val_bpb": 3.9262,
+        "post_quant_val_loss": 6.66065922,
+        "post_quant_val_bpb": 3.94481757,
+        "train_time_ms": 54929,
+        "step_avg_ms": 2746.43,
+        "eval_time_ms": 94488,
+        "peak_memory_allocated_mib": 7732,
+        "peak_memory_reserved_mib": 8214,
+        "artifact_bytes_model_int8_zlib": 4974118,
+        "artifact_bytes_total": 5021877,
+        "artifact_bytes_code": 47759
+      },
+      "params": {
+        "dataset_variant": "fineweb10B_sp1024",
+        "train_shards": 1,
+        "train_batch_tokens": 393216,
+        "train_seq_len": 4096,
+        "iterations": 20,
+        "matrix_lr": 0.02,
+        "scalar_lr": 0.02,
+        "tied_embed_lr": 0.03,
+        "muon_momentum": 0.99
+      }
+    },
+    {
+      "arm_id": "TREATMENT",
+      "run_name": "seq10l_fp16_sliding_challenger_battle_b06b",
+      "status": "treatment_improved",
+      "metrics": {
+        "mean_post_quant_val_bpb": 3.463217474,
+        "mean_post_quant_val_loss": 5.847497636,
+        "mean_total_submission_bytes": 6212627.0,
+        "success_rate": 1.0,
+        "eval_batch_seqs": 256
+      },
+      "params": {
+        "train_batch_tokens": 393216,
+        "train_seq_len": 4096,
+        "iterations": 20,
+        "matrix_lr": 0.02,
+        "scalar_lr": 0.02,
+        "tied_embed_lr": 0.03,
+        "muon_momentum": 0.99,
+        "eval_mode": "sliding_window",
+        "eval_batch_seqs": 256,
+        "treatment_name": "seq10l_fp16_sliding_challenger"
+      },
+      "replicates": [
+        {
+          "status": "passed",
+          "metrics": {
+            "train_step_final": 20,
+            "train_step_final_val_loss": 5.8461,
+            "train_step_final_val_bpb": 3.4624,
+            "train_time_ms": 63186,
+            "step_avg_ms": 3159.31,
+            "post_quant_val_loss": 5.8467085,
+            "post_quant_val_bpb": 3.4627501,
+            "artifact_bytes_total": 6213323,
+            "artifact_bytes_model_int8_zlib": 6157840,
+            "artifact_bytes_code": 55483,
+            "eval_time_ms": 293581,
+            "peak_memory_allocated_mib": 11393,
+            "peak_memory_reserved_mib": 11452
+          },
+          "params": {
+            "seed": 1342,
+            "iterations": 20
+          },
+          "failure_kind": null,
+          "failure_stage": null,
+          "failure_message": null,
+          "run_name": "arena_b06b_seq10l_fp16_sliding_challenger_seed1342",
+          "returncode": 0,
+          "log_path": "battle_results/b06b/treatment_seed1342.log"
+        },
+        {
+          "status": "passed",
+          "metrics": {
+            "train_step_final": 20,
+            "train_step_final_val_loss": 5.8402,
+            "train_step_final_val_bpb": 3.4589,
+            "train_time_ms": 24807,
+            "step_avg_ms": 1240.34,
+            "post_quant_val_loss": 5.84074148,
+            "post_quant_val_bpb": 3.4592161,
+            "artifact_bytes_total": 6211963,
+            "artifact_bytes_model_int8_zlib": 6156480,
+            "artifact_bytes_code": 55483,
+            "eval_time_ms": 299302,
+            "peak_memory_allocated_mib": 11393,
+            "peak_memory_reserved_mib": 11452
+          },
+          "params": {
+            "seed": 1343,
+            "iterations": 20
+          },
+          "failure_kind": null,
+          "failure_stage": null,
+          "failure_message": null,
+          "run_name": "arena_b06b_seq10l_fp16_sliding_challenger_seed1343",
+          "returncode": 0,
+          "log_path": "battle_results/b06b/treatment_seed1343.log"
+        },
+        {
+          "status": "passed",
+          "metrics": {
+            "train_step_final": 20,
+            "train_step_final_val_loss": 5.852,
+            "train_step_final_val_bpb": 3.4659,
+            "train_time_ms": 26211,
+            "step_avg_ms": 1310.54,
+            "post_quant_val_loss": 5.85245016,
+            "post_quant_val_bpb": 3.46615064,
+            "artifact_bytes_total": 6213725,
+            "artifact_bytes_model_int8_zlib": 6158242,
+            "artifact_bytes_code": 55483,
+            "eval_time_ms": 303860,
+            "peak_memory_allocated_mib": 11393,
+            "peak_memory_reserved_mib": 11452
+          },
+          "params": {
+            "seed": 1344,
+            "iterations": 20
+          },
+          "failure_kind": null,
+          "failure_stage": null,
+          "failure_message": null,
+          "run_name": "arena_b06b_seq10l_fp16_sliding_challenger_seed1344",
+          "returncode": 0,
+          "log_path": "battle_results/b06b/treatment_seed1344.log"
+        },
+        {
+          "status": "passed",
+          "metrics": {
+            "train_step_final": 20,
+            "train_step_final_val_loss": 5.8483,
+            "train_step_final_val_bpb": 3.4637,
+            "train_time_ms": 25257,
+            "step_avg_ms": 1262.85,
+            "post_quant_val_loss": 5.84886295,
+            "post_quant_val_bpb": 3.46402609,
+            "artifact_bytes_total": 6212724,
+            "artifact_bytes_model_int8_zlib": 6157241,
+            "artifact_bytes_code": 55483,
+            "eval_time_ms": 298090,
+            "peak_memory_allocated_mib": 11393,
+            "peak_memory_reserved_mib": 11452
+          },
+          "params": {
+            "seed": 1345,
+            "iterations": 20
+          },
+          "failure_kind": null,
+          "failure_stage": null,
+          "failure_message": null,
+          "run_name": "arena_b06b_seq10l_fp16_sliding_challenger_seed1345",
+          "returncode": 0,
+          "log_path": "battle_results/b06b/treatment_seed1345.log"
+        },
+        {
+          "status": "passed",
+          "metrics": {
+            "train_step_final": 20,
+            "train_step_final_val_loss": 5.8482,
+            "train_step_final_val_bpb": 3.4636,
+            "train_time_ms": 26368,
+            "step_avg_ms": 1318.38,
+            "post_quant_val_loss": 5.84872509,
+            "post_quant_val_bpb": 3.46394444,
+            "artifact_bytes_total": 6211400,
+            "artifact_bytes_model_int8_zlib": 6155917,
+            "artifact_bytes_code": 55483,
+            "eval_time_ms": 301686,
+            "peak_memory_allocated_mib": 11393,
+            "peak_memory_reserved_mib": 11452
+          },
+          "params": {
+            "seed": 1346,
+            "iterations": 20
+          },
+          "failure_kind": null,
+          "failure_stage": null,
+          "failure_message": null,
+          "run_name": "arena_b06b_seq10l_fp16_sliding_challenger_seed1346",
+          "returncode": 0,
+          "log_path": "battle_results/b06b/treatment_seed1346.log"
+        }
+      ]
+    }
+  ],
+  "next_action": {
+    "recommendation": "promote treatment only if mean_post_quant_val_bpb beats control and success rate is 1.0",
+    "candidate_eval_batch_seqs": [
+      32,
+      64,
+      128
+    ]
+  }
+}
