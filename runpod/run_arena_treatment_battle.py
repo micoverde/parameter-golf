@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import copy
 import json
 import os
 import statistics
@@ -79,6 +80,8 @@ def run_one(seed: int, battle_id: str, log_dir: Path) -> dict[str, Any]:
 
 def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str, Any]:
     champion = json.loads(CHAMPION_PATH.read_text(encoding="utf-8"))
+    champion_arm = copy.deepcopy(champion["arm"])
+    champion_arm["arm_id"] = "CONTROL"
     successes = [rep for rep in replicates if rep["status"] == "passed"]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
@@ -147,7 +150,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "treatment_failures": len(replicates) - len(successes),
         },
         "arms": [
-            champion["arm"],
+            champion_arm,
             {
                 "arm_id": "TREATMENT",
                 "run_name": f"{treatment_slug}_battle_{battle_id}",
