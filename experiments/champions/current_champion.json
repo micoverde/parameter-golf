@@ -1,39 +1,34 @@
 {
-  "champion_id": "pg_arena_control_2026_03_19_seq4096_control",
-  "date": "2026-03-19",
-  "experiment_name": "parameter-golf-arena-smoke-2026-03-19",
-  "experiment_id": "63",
-  "summary_run_id": "e114dcab4d9d47079bbb2a243bf5a91e",
-  "arm_run_id": "0a31d4e9eb40435fb34436a323fb2e18",
-  "comparison_json": "experiments/arena_runs/2026-03-19_seq4096_control_vs_sliding_smoke.json",
+  "champion_id": "pg_arena_champion_2026_03_20_b06_seq10l_fp16_sliding_challenger",
+  "date": "2026-03-20",
+  "experiment_name": "MLFLOW ARENA 2026-03-20 Golf",
+  "experiment_id": "66",
+  "summary_run_id": "3f8e13db665d45639b223b61cbc0282e",
+  "arm_run_id": "54c108f8dafd4153a12406421504cb39",
+  "comparison_json": "experiments/arena_runs/2026-03-20_b06_seq10l_fp16_sliding_challenger_merged.json",
   "arm": {
-    "arm_id": "CONTROL",
-    "run_name": "seq4096_control_smoke",
-    "status": "passed",
+    "arm_id": "TREATMENT",
+    "run_name": "seq10l_fp16_sliding_challenger_battle_b06_merged",
+    "status": "treatment_improved",
     "metrics": {
-      "train_step20_val_loss": 6.6292,
-      "train_step20_val_bpb": 3.9262,
-      "post_quant_val_loss": 6.66065922,
-      "post_quant_val_bpb": 3.94481757,
-      "train_time_ms": 54929,
-      "step_avg_ms": 2746.43,
-      "eval_time_ms": 94488,
-      "peak_memory_allocated_mib": 7732,
-      "peak_memory_reserved_mib": 8214,
-      "artifact_bytes_model_int8_zlib": 4974118,
-      "artifact_bytes_total": 5021877,
-      "artifact_bytes_code": 47759
+      "mean_post_quant_val_bpb": 3.463062159,
+      "mean_post_quant_val_loss": 5.847235393,
+      "mean_total_submission_bytes": 6212447.3,
+      "success_rate": 1.0,
+      "eval_batch_seqs": 256
     },
     "params": {
       "dataset_variant": "fineweb10B_sp1024",
       "train_shards": 1,
-      "train_batch_tokens": 393216,
-      "train_seq_len": 4096,
+      "train_batch_tokens": 524288,
+      "train_seq_len": 1024,
       "iterations": 20,
-      "matrix_lr": 0.02,
-      "scalar_lr": 0.02,
-      "tied_embed_lr": 0.03,
-      "muon_momentum": 0.99
+      "matrix_lr": 0.04,
+      "scalar_lr": 0.04,
+      "tied_embed_lr": 0.1,
+      "muon_momentum": 0.95,
+      "eval_mode": "sliding_window",
+      "treatment_name": "seq10l_fp16_sliding_challenger"
     }
   }
 }
