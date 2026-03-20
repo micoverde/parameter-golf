@@ -13,6 +13,7 @@ LOG_PATTERNS = ("train*.log", "train*.txt")
 MIN_SUBMISSION_KEYS = ("author", "name")
 METRIC_KEYS = ("val_bpb", "mean_val_bpb", "val_loss", "mean_val_loss")
 BYTE_KEYS = ("bytes_total", "artifact_bytes", "code_bytes", "bytes_code")
+EXPERIMENT_METADATA_DIRS = {"arena_runs", "champions"}
 
 
 def find_candidate_dirs(root: Path) -> list[Path]:
@@ -21,7 +22,11 @@ def find_candidate_dirs(root: Path) -> list[Path]:
         for track_dir in sorted(root.glob("track_*")):
             candidates.extend(sorted(path for path in track_dir.iterdir() if path.is_dir()))
         return candidates
-    return sorted(path for path in root.iterdir() if path.is_dir())
+    return sorted(
+        path
+        for path in root.iterdir()
+        if path.is_dir() and path.name not in EXPERIMENT_METADATA_DIRS
+    )
 
 
 def gather_log_files(path: Path) -> list[Path]:
