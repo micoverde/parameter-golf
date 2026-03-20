@@ -22,6 +22,16 @@ def mean_or_none(values: list[float]) -> float | None:
     return statistics.mean(values) if values else None
 
 
+def champion_metric(champion: dict[str, Any], base_key: str) -> float:
+    metrics = champion["arm"]["metrics"]
+    if base_key in metrics:
+        return float(metrics[base_key])
+    mean_key = f"mean_{base_key}"
+    if mean_key in metrics:
+        return float(metrics[mean_key])
+    raise KeyError(f"champion metric not found: {base_key}")
+
+
 def treatment_script() -> str:
     return os.environ.get("TREATMENT_SCRIPT", "runpod/smoke_seq4096_sliding_eval.sh")
 
@@ -83,7 +93,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         [float(rep["metrics"]["artifact_bytes_total"]) for rep in successes if "artifact_bytes_total" in rep["metrics"]]
     )
 
-    control_bpb = float(champion["arm"]["metrics"]["post_quant_val_bpb"])
+    control_bpb = champion_metric(champion, "post_quant_val_bpb")
     treatment_success_rate = len(successes) / len(replicates) if replicates else 0.0
     delta_bpb = mean_post_quant_bpb - control_bpb if mean_post_quant_bpb is not None else None
 
@@ -128,7 +138,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         },
         "summary_metrics": {
             "control_post_quant_val_bpb": control_bpb,
-            "control_post_quant_val_loss": float(champion["arm"]["metrics"]["post_quant_val_loss"]),
+            "control_post_quant_val_loss": champion_metric(champion, "post_quant_val_loss"),
             "treatment_success_rate": treatment_success_rate,
             "treatment_mean_post_quant_val_bpb": mean_post_quant_bpb,
             "treatment_mean_post_quant_val_loss": mean_post_quant_loss,
