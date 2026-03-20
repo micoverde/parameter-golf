@@ -76,8 +76,12 @@ def main() -> int:
     terminal_name = create_terminal(session, args.base_url)
     marker = f"__CODEX_DONE_{uuid.uuid4().hex}__"
 
-    command = f"{args.command}; printf '\\n{marker} %s\\n' $?\n"
-    quoted = shlex.quote(command)
+    shell_command = (
+        f"{args.command}; "
+        "status=$?; "
+        f'printf "%s %s\\n" {shlex.quote(marker)} "$status"'
+    )
+    quoted = shlex.quote(shell_command)
     cookie_header = "; ".join(f"{key}={value}" for key, value in session.cookies.get_dict().items())
     xsrf = session.cookies.get("_xsrf", "")
     ws = websocket.create_connection(

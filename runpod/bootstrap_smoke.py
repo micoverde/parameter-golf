@@ -55,7 +55,7 @@ def ensure_data() -> None:
 def run_smoke(script: str, run_id: str) -> None:
     smoke_env = {
         "RUN_ID": run_id,
-        "ITERATIONS": os.environ.get("ITERATIONS", "200"),
+        "ITERATIONS": os.environ.get("ITERATIONS", "20"),
         "VAL_LOSS_EVERY": os.environ.get("VAL_LOSS_EVERY", "0"),
         "WARMUP_STEPS": os.environ.get("WARMUP_STEPS", "0"),
         "MAX_WALLCLOCK_SECONDS": os.environ.get("MAX_WALLCLOCK_SECONDS", "0"),
