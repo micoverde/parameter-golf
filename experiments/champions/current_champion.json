@@ -1,0 +1,39 @@
+{
+  "champion_id": "pg_arena_control_2026_03_19_seq4096_control",
+  "date": "2026-03-19",
+  "experiment_name": "parameter-golf-arena-smoke-2026-03-19",
+  "experiment_id": "63",
+  "summary_run_id": "e114dcab4d9d47079bbb2a243bf5a91e",
+  "arm_run_id": "0a31d4e9eb40435fb34436a323fb2e18",
+  "comparison_json": "experiments/arena_runs/2026-03-19_seq4096_control_vs_sliding_smoke.json",
+  "arm": {
+    "arm_id": "CONTROL",
+    "run_name": "seq4096_control_smoke",
+    "status": "passed",
+    "metrics": {
+      "train_step20_val_loss": 6.6292,
+      "train_step20_val_bpb": 3.9262,
+      "post_quant_val_loss": 6.66065922,
+      "post_quant_val_bpb": 3.94481757,
+      "train_time_ms": 54929,
+      "step_avg_ms": 2746.43,
+      "eval_time_ms": 94488,
+      "peak_memory_allocated_mib": 7732,
+      "peak_memory_reserved_mib": 8214,
+      "artifact_bytes_model_int8_zlib": 4974118,
+      "artifact_bytes_total": 5021877,
+      "artifact_bytes_code": 47759
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "train_shards": 1,
+      "train_batch_tokens": 393216,
+      "train_seq_len": 4096,
+      "iterations": 20,
+      "matrix_lr": 0.02,
+      "scalar_lr": 0.02,
+      "tied_embed_lr": 0.03,
+      "muon_momentum": 0.99
+    }
+  }
+}

@@ -64,6 +64,42 @@ def log_arm(mlflow: Any, arm: dict[str, Any], common_tags: dict[str, str], commo
 
         mlflow.log_dict(arm, f"{arm['arm_id'].lower()}_arm.json")
 
+        for index, replicate in enumerate(arm.get("replicates", [])):
+            replicate_run_name = replicate.get("run_name", f"{run_name}_replicate_{index}")
+            with mlflow.start_run(run_name=replicate_run_name, nested=True):
+                replicate_tags = dict(tags)
+                replicate_tags.update(
+                    {
+                        "arena.replicate": "true",
+                        "arena.replicate_index": str(index),
+                        "arena.replicate_status": str(replicate.get("status", "unknown")),
+                    }
+                )
+                if replicate.get("params", {}).get("seed") is not None:
+                    replicate_tags["arena.seed"] = str(replicate["params"]["seed"])
+                if replicate.get("failure_kind"):
+                    replicate_tags["arena.failure_kind"] = str(replicate["failure_kind"])
+                if replicate.get("failure_stage"):
+                    replicate_tags["arena.failure_stage"] = str(replicate["failure_stage"])
+                mlflow.set_tags(replicate_tags)
+
+                replicate_params = dict(arm_params)
+                replicate_params.update(replicate.get("params", {}))
+                mlflow.log_params({k: str(v) for k, v in replicate_params.items()})
+
+                replicate_metrics = {
+                    key: float(value)
+                    for key, value in replicate.get("metrics", {}).items()
+                    if isinstance(value, (int, float))
+                }
+                if replicate_metrics:
+                    mlflow.log_metrics(replicate_metrics)
+
+                mlflow.log_dict(
+                    replicate,
+                    f"{arm['arm_id'].lower()}_replicate_{index}.json",
+                )
+
 
 def main() -> int:
     args = parse_args()

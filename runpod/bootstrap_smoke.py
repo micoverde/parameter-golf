@@ -10,6 +10,7 @@ BRANCH = os.environ.get("BRANCH", "feature/contest-preflight-ci")
 TRAIN_SHARDS = os.environ.get("TRAIN_SHARDS", "1")
 RUN_SMOKE = os.environ.get("RUN_SMOKE", "1") == "1"
 ARM = os.environ.get("ARM", "both")
+BATTLE_ID = os.environ.get("BATTLE_ID", "b02")
 WORKSPACE = Path("/workspace")
 REPO_DIR = WORKSPACE / "parameter-golf"
 
@@ -70,11 +71,14 @@ def main() -> None:
     ensure_data()
     if RUN_SMOKE:
         if ARM in {"control", "both"}:
-            run_smoke("runpod/smoke_seq4096_control.sh", os.environ.get("CONTROL_RUN_ID", "smoke_seq4096_control"))
+            run_smoke(
+                "runpod/smoke_seq4096_control.sh",
+                os.environ.get("CONTROL_RUN_ID", f"arena_{BATTLE_ID}_seq4096_control"),
+            )
         if ARM in {"treatment", "both"}:
             run_smoke(
                 "runpod/smoke_seq4096_sliding_eval.sh",
-                os.environ.get("TREATMENT_RUN_ID", "smoke_seq4096_sliding_eval"),
+                os.environ.get("TREATMENT_RUN_ID", f"arena_{BATTLE_ID}_seq4096_sliding_eval"),
             )
 
 
