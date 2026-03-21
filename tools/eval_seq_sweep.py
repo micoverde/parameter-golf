@@ -68,7 +68,13 @@ def main() -> int:
     }
     if "mlp_hidden" in inspect.signature(module.GPT).parameters:
         gpt_kwargs["mlp_hidden"] = getattr(args, "mlp_hidden", 0)
+    if "rope_train_seq_len" in inspect.signature(module.GPT).parameters:
+        gpt_kwargs["rope_train_seq_len"] = getattr(args, "rope_train_seq_len", 1024)
     model = module.GPT(**gpt_kwargs).to(device).bfloat16()
+    for submodule in model.modules():
+        if isinstance(submodule, getattr(module, "CastedLinear")):
+            submodule.float()
+    module.restore_low_dim_params_to_fp32(model)
 
     with open(args_ns.artifact, "rb") as f:
         quant_blob = f.read()
@@ -77,19 +83,21 @@ def main() -> int:
 
     results: list[dict[str, float | int]] = []
     for seq_len in seq_lens:
-        val_loss, val_bpb = module.eval_val(
-            args,
-            model,
-            rank=0,
-            world_size=1,
-            device=device,
-            grad_accum_steps=1,
-            val_tokens=val_tokens,
-            base_bytes_lut=base_bytes_lut,
-            has_leading_space_lut=has_leading_space_lut,
-            is_boundary_token_lut=is_boundary_token_lut,
-            eval_seq_len=seq_len,
-        )
+        eval_val_kwargs = {
+            "args": args,
+            "model": model,
+            "rank": 0,
+            "world_size": 1,
+            "device": device,
+            "grad_accum_steps": 1,
+            "val_tokens": val_tokens,
+            "base_bytes_lut": base_bytes_lut,
+            "has_leading_space_lut": has_leading_space_lut,
+            "is_boundary_token_lut": is_boundary_token_lut,
+        }
+        if "eval_seq_len" in inspect.signature(module.eval_val).parameters:
+            eval_val_kwargs["eval_seq_len"] = seq_len
+        val_loss, val_bpb = module.eval_val(**eval_val_kwargs)
         row: dict[str, float | int] = {
             "eval_seq_len": seq_len,
             "exact_val_loss": val_loss,

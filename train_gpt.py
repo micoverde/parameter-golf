@@ -71,6 +71,7 @@ class Hyperparameters:
     mlp_hidden = int(os.environ.get("MLP_HIDDEN", 0))
     tie_embeddings = bool(int(os.environ.get("TIE_EMBEDDINGS", "1")))
     rope_base = float(os.environ.get("ROPE_BASE", 10000.0))
+    rope_train_seq_len = int(os.environ.get("ROPE_TRAIN_SEQ_LEN", 1024))
     logit_softcap = float(os.environ.get("LOGIT_SOFTCAP", 30.0))
 
     # Optimizer hyperparameters.
@@ -93,7 +94,10 @@ class Hyperparameters:
     ttt_lora_rank = int(os.environ.get("TTT_LORA_RANK", 8))
     ttt_lora_lr = float(os.environ.get("TTT_LORA_LR", 0.01))
     ttt_chunk_size = int(os.environ.get("TTT_CHUNK_SIZE", 256))
-    ttt_eval_seq_len = int(os.environ.get("TTT_EVAL_SEQ_LEN", 1024))
+    _ttt_eval_env = os.environ.get("TTT_EVAL_SEQ_LEN")
+    _base_eval_env = int(os.environ.get("EVAL_SEQ_LEN", "0"))
+    _train_seq_env = int(os.environ.get("TRAIN_SEQ_LEN", "1024"))
+    ttt_eval_seq_len = int(_ttt_eval_env) if _ttt_eval_env is not None else (_base_eval_env if _base_eval_env > 0 else _train_seq_env)
     ttt_batch_size = int(os.environ.get("TTT_BATCH_SIZE", 64))
 
 # -----------------------------
@@ -597,6 +601,7 @@ class CausalSelfAttention(nn.Module):
         num_kv_heads: int,
         rope_base: float,
         qk_gain_init: float,
+        rope_train_seq_len: int,
     ):
         super().__init__()
         if dim % num_heads != 0:
@@ -615,7 +620,7 @@ class CausalSelfAttention(nn.Module):
         self.proj = CastedLinear(dim, dim, bias=False)
         self.proj._zero_init = True
         self.q_gain = nn.Parameter(torch.full((num_heads,), qk_gain_init, dtype=torch.float32))
-        self.rotary = Rotary(self.head_dim, base=rope_base, train_seq_len=1024)
+        self.rotary = Rotary(self.head_dim, base=rope_base, train_seq_len=rope_train_seq_len)
 
     def forward(self, x: Tensor, q_delta=None, v_delta=None) -> Tensor:
         bsz, seqlen, dim = x.shape
@@ -667,11 +672,12 @@ class Block(nn.Module):
         rope_base: float,
         qk_gain_init: float,
         mlp_hidden: int = 0,
+        rope_train_seq_len: int = 1024,
     ):
         super().__init__()
         self.attn_norm = RMSNorm()
         self.mlp_norm = RMSNorm()
-        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, rope_base, qk_gain_init)
+        self.attn = CausalSelfAttention(dim, num_heads, num_kv_heads, rope_base, qk_gain_init, rope_train_seq_len)
         self.mlp = MLP(dim, mlp_mult, mlp_hidden)
         self.attn_scale = nn.Parameter(torch.ones(dim, dtype=torch.float32))
         self.mlp_scale = nn.Parameter(torch.ones(dim, dtype=torch.float32))
@@ -704,6 +710,7 @@ class GPT(nn.Module):
         logit_softcap: float,
         rope_base: float,
         qk_gain_init: float,
+        rope_train_seq_len: int = 1024,
     ):
         super().__init__()
         if logit_softcap <= 0.0:
@@ -726,6 +733,7 @@ class GPT(nn.Module):
                     rope_base,
                     qk_gain_init,
                     mlp_hidden=mlp_hidden,
+                    rope_train_seq_len=rope_train_seq_len,
                 )
                 for i in range(num_layers)
             ]
@@ -1181,6 +1189,7 @@ def main() -> None:
         logit_softcap=args.logit_softcap,
         rope_base=args.rope_base,
         qk_gain_init=args.qk_gain_init,
+        rope_train_seq_len=args.rope_train_seq_len,
     ).to(device).bfloat16()
     for module in base_model.modules():
         if isinstance(module, CastedLinear):
