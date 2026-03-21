@@ -85,6 +85,7 @@ class Hyperparameters:
 
     eval_stride = int(os.environ.get("EVAL_STRIDE", 64))
     eval_batch_seqs = int(os.environ.get("EVAL_BATCH_SEQS", 32))
+    val_max_seqs = int(os.environ.get("VAL_MAX_SEQS", 0))
 
     bigram_vocab_size = int(os.environ.get("BIGRAM_VOCAB_SIZE", 10240))
     bigram_dim = int(os.environ.get("BIGRAM_DIM", 128))
@@ -211,6 +212,16 @@ def load_validation_tokens(pattern: str, seq_len: int) -> Tensor:
     if usable <= 0:
         raise ValueError(f"Validation split is too short for TRAIN_SEQ_LEN={seq_len}")
     return tokens[: usable + 1]
+
+
+def maybe_cap_validation_tokens(tokens: Tensor, seq_len: int, max_seqs: int) -> Tensor:
+    if max_seqs <= 0:
+        return tokens
+    usable_seqs = min(max_seqs, (tokens.numel() - 1) // seq_len)
+    if usable_seqs <= 0:
+        raise ValueError(f"VAL_MAX_SEQS={max_seqs} leaves no usable validation sequences")
+    capped = usable_seqs * seq_len
+    return tokens[: capped + 1].contiguous()
 
 
 def eval_val(
@@ -898,12 +909,14 @@ def main() -> None:
     dataset_dir = Path(args.data_path).resolve()
     actual_train_files = len(list(dataset_dir.glob("fineweb_train_*.bin")))
     val_tokens = load_validation_tokens(args.val_files, args.train_seq_len)
+    val_tokens = maybe_cap_validation_tokens(val_tokens, args.train_seq_len, args.val_max_seqs)
     base_bytes_lut, has_leading_space_lut, is_boundary_token_lut = build_sentencepiece_luts(
         sp, args.vocab_size, device
     )
     log0(f"val_bpb:enabled tokenizer_kind=sentencepiece tokenizer_path={args.tokenizer_path}")
     log0(f"train_loader:dataset:{dataset_dir.name} train_shards:{actual_train_files}")
     log0(f"val_loader:shards pattern={args.val_files} tokens:{val_tokens.numel() - 1}")
+    log0(f"val_max_seqs:{args.val_max_seqs}")
 
     # MODEL + OPTIMIZER SETUP
     base_model = GPT(
