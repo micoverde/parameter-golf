@@ -17,5 +17,11 @@ export QAT_START_SCALE="${QAT_START_SCALE:-1.0}"
 
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 
-torchrun --standalone --nproc_per_node="${NPROC_PER_NODE}" \
+if command -v torchrun >/dev/null 2>&1; then
+  TORCH_LAUNCHER=(torchrun)
+else
+  TORCH_LAUNCHER=(python3 -m torch.distributed.run)
+fi
+
+"${TORCH_LAUNCHER[@]}" --standalone --nproc_per_node="${NPROC_PER_NODE}" \
   experiments/wdq_int6_ste_qat/train_gpt.py
