@@ -92,6 +92,7 @@ class Hyperparameters:
     swa_enabled = bool(int(os.environ.get("SWA_ENABLED", "1")))
     swa_start_frac = float(os.environ.get("SWA_START_FRAC", 0.4))
     swa_every = int(os.environ.get("SWA_EVERY", 50))
+    proxy_t4_compat = bool(int(os.environ.get("PROXY_T4_COMPAT", "0")))
 
 # -----------------------------
 # MUON OPTIMIZER
@@ -825,7 +826,6 @@ def main() -> None:
 
     code = Path(__file__).read_text(encoding="utf-8")
     args = Hyperparameters()
-    zeropower_via_newtonschulz5 = torch.compile(zeropower_via_newtonschulz5)
 
     distributed = "RANK" in os.environ and "WORLD_SIZE" in os.environ
     rank = int(os.environ.get("RANK", "0"))
@@ -841,6 +841,10 @@ def main() -> None:
         raise RuntimeError("CUDA is required")
     device = torch.device("cuda", local_rank)
     torch.cuda.set_device(device)
+    device_capability = torch.cuda.get_device_capability(device)
+    use_proxy_t4_compat = args.proxy_t4_compat or device_capability[0] < 8
+    if not use_proxy_t4_compat:
+        zeropower_via_newtonschulz5 = torch.compile(zeropower_via_newtonschulz5)
     if distributed:
         dist.init_process_group(backend="nccl", device_id=device)
         dist.barrier()
@@ -850,9 +854,9 @@ def main() -> None:
     torch.backends.cudnn.allow_tf32 = True
     from torch.backends.cuda import enable_cudnn_sdp, enable_flash_sdp, enable_math_sdp, enable_mem_efficient_sdp
     enable_cudnn_sdp(False)
-    enable_flash_sdp(True)
+    enable_flash_sdp(not use_proxy_t4_compat)
     enable_mem_efficient_sdp(False)
-    enable_math_sdp(False)
+    enable_math_sdp(use_proxy_t4_compat)
 
     logfile = None
     if master_process:
@@ -921,7 +925,7 @@ def main() -> None:
         if isinstance(module, CastedLinear):
             module.float()
     restore_low_dim_params_to_fp32(base_model)
-    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True)
+    compiled_model = base_model if use_proxy_t4_compat else torch.compile(base_model, dynamic=False, fullgraph=True)
     model: nn.Module = DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
 
     block_named_params = list(base_model.blocks.named_parameters())
@@ -993,6 +997,7 @@ def main() -> None:
         f"max_wallclock_seconds:{args.max_wallclock_seconds:.3f}"
     )
     log0(f"seed:{args.seed}")
+    log0(f"proxy_t4_compat:{use_proxy_t4_compat} device_capability:{device_capability}")
 
     # DATA LOADER & MODEL WARMUP
     train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
