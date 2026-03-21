@@ -58,8 +58,11 @@ def metric_base_key() -> str:
 
 
 def metric_loss_key() -> str:
-    if metric_base_key() == "sliding_window_val_bpb":
+    base_key = metric_base_key()
+    if base_key == "sliding_window_val_bpb":
         return "sliding_window_val_loss"
+    if base_key == "ttt_lora_val_bpb":
+        return "ttt_lora_val_loss"
     return os.environ.get("METRIC_LOSS_KEY", "post_quant_val_loss")
 
 
@@ -142,6 +145,8 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         "date": date.today().isoformat(),
         "arena_tier": "tier1_battle",
         "lane_name": lane_name(),
+        "primary_metric_key": score_key,
+        "primary_loss_key": loss_key,
         "control_arm": "CONTROL",
         "treatment_arm": "TREATMENT",
         "status": status,
@@ -153,6 +158,15 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "commit": subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], cwd=REPO_DIR, text=True).strip(),
             "control_script": champion["arm"].get("run_name", "seq4096_control_smoke"),
             "treatment_script": treatment_script_target,
+        },
+        "control_source": {
+            "champion_path": str(champion_path().relative_to(REPO_DIR)),
+            "champion_id": champion.get("comparison_id", ""),
+            "summary_run_id": champion.get("summary_run_id", ""),
+            "arm_run_id": champion.get("arm_run_id", ""),
+            "comparison_json": champion.get("comparison_json", ""),
+            "primary_metric_key": score_key,
+            "primary_loss_key": loss_key,
         },
         "provenance": {
             "pod_id": os.environ.get("POD_ID", ""),
@@ -175,6 +189,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "replicates_per_arm": len(replicates),
         },
         "summary_metrics": {
+            "primary_control_val_bpb": control_bpb,
+            "primary_control_val_loss": champion_metric(champion, loss_key),
+            "primary_treatment_mean_val_bpb": mean_post_quant_bpb,
+            "primary_treatment_mean_val_loss": mean_post_quant_loss,
+            "primary_treatment_delta_bpb": delta_bpb,
             "control_post_quant_val_bpb": control_bpb,
             "control_post_quant_val_loss": champion_metric(champion, loss_key),
             "treatment_success_rate": treatment_success_rate,
@@ -197,6 +216,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                     "success_rate": treatment_success_rate,
                     "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
                     "metric_base_key": score_key,
+                    "metric_loss_key": loss_key,
                 },
                 "params": {
                     "train_batch_tokens": env_int("TRAIN_BATCH_TOKENS", 393216),

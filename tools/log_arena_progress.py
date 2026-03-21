@@ -112,6 +112,7 @@ def main() -> int:
 
     common_tags = {
         "arena.tier": str(payload["arena_tier"]),
+        "arena.lane_name": str(payload.get("lane_name", "smoke")),
         "arena.control_arm": str(payload["control_arm"]),
         "arena.treatment_arm": str(payload["treatment_arm"]),
         "arena.status": str(payload["status"]),
@@ -129,6 +130,8 @@ def main() -> int:
                 **common_tags,
                 "mlflow.runName": payload["comparison_id"],
                 "arena.control_fixed": "true",
+                "arena.primary_metric_key": str(payload.get("primary_metric_key", "")),
+                "arena.primary_loss_key": str(payload.get("primary_loss_key", "")),
                 "arena.next_action": str(payload["next_action"]["recommendation"]),
             }
         )
@@ -138,6 +141,9 @@ def main() -> int:
                 "repo.fork_url": str(payload["repo"]["fork_url"]),
                 "repo.control_script": str(payload["repo"]["control_script"]),
                 "repo.treatment_script": str(payload["repo"]["treatment_script"]),
+                "arena.lane_name": str(payload.get("lane_name", "smoke")),
+                "arena.primary_metric_key": str(payload.get("primary_metric_key", "")),
+                "arena.primary_loss_key": str(payload.get("primary_loss_key", "")),
                 "runpod.template_id": str(payload["provenance"]["template_id"]),
                 "runpod.image_name": str(payload["provenance"]["image_name"]),
             }
