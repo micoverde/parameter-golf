@@ -1,0 +1,19 @@
+{
+  "author": "Warren Johnson",
+  "github_id": "micoverde",
+  "name": "Azure T4 Frontier Proxy Int5 Control",
+  "blurb": "Proxy-only non-record development capture of the current 10L int5 frontier family on 1x Azure T4 with validation capped to 512 sequences. Pre-quant reached 3.1599 BPB and the final quantized roundtrip scored 3.20873382 under the 16,000,000-byte cap.",
+  "date": "2026-03-22T06:26:29Z",
+  "track": "non-record-proxy-16mb",
+  "val_loss": 5.35550585,
+  "val_bpb": 3.20873382,
+  "pre_quant_val_loss": 5.2741,
+  "pre_quant_val_bpb": 3.1599,
+  "step_stop": 100,
+  "wallclock_seconds": 507.95,
+  "bytes_total": 15536094,
+  "bytes_model_int8_zlib": 15482160,
+  "bytes_code": 53934,
+  "hardware": "1x NVIDIA Tesla T4 16GB",
+  "eval_scope": "VAL_MAX_SEQS=512 proxy validation"
+}
