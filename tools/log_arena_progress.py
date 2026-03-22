@@ -20,6 +20,12 @@ def parse_args() -> argparse.Namespace:
         default="parameter-golf-arena-smoke-2026-03-19",
         help="MLflow experiment name.",
     )
+    parser.add_argument(
+        "--artifact",
+        action="append",
+        default=[],
+        help="Additional artifact file or directory to attach to the parent run. Can be repeated.",
+    )
     return parser.parse_args()
 
 
@@ -113,6 +119,7 @@ def main() -> int:
     common_tags = {
         "arena.tier": str(payload["arena_tier"]),
         "arena.lane_name": str(payload.get("lane_name", "smoke")),
+        "arena.comparison_mode": str(payload.get("comparison_mode", "")),
         "arena.control_arm": str(payload["control_arm"]),
         "arena.treatment_arm": str(payload["treatment_arm"]),
         "arena.status": str(payload["status"]),
@@ -156,6 +163,12 @@ def main() -> int:
             }
         )
         mlflow.log_dict(payload, "arena_comparison.json")
+        for artifact in args.artifact:
+            artifact_path = Path(artifact)
+            if artifact_path.is_dir():
+                mlflow.log_artifacts(str(artifact_path), artifact_path="supporting")
+            elif artifact_path.exists():
+                mlflow.log_artifact(str(artifact_path), artifact_path="supporting")
 
         for arm in payload["arms"]:
             log_arm(mlflow, arm, common_tags, common_params)

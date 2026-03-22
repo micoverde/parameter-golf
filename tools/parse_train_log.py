@@ -11,18 +11,35 @@ from typing import Any
 STEP_RE = re.compile(
     r"step:(?P<step>\d+)/(?P<iterations>\d+)\s+val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+train_time:(?P<train_time_ms>\d+)ms\s+step_avg:(?P<step_avg_ms>[0-9.]+)ms"
 )
+TRAIN_STEP_RE = re.compile(
+    r"step:(?P<step>\d+)/(?P<iterations>\d+)\s+train_loss:(?P<train_loss>[0-9.]+)\s+train_time:(?P<train_time_ms>\d+)ms\s+step_avg:(?P<step_avg_ms>[0-9.]+)ms"
+)
 FINAL_RE = re.compile(
     r"final_int8_zlib_roundtrip_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
+FINAL_INT6_RE = re.compile(
+    r"final_int6_roundtrip_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
 FINAL_SLIDING_RE = re.compile(
     r"final_sliding_window_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
+FINAL_INT6_SLIDING_RE = re.compile(
+    r"final_int6_sliding_window_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
+FINAL_INT6_SLIDING_S64_RE = re.compile(
+    r"final_int6_sliding_window_s64_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
 FINAL_TTT_RE = re.compile(
     r"final_int8_ttt_lora val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
-BYTES_TOTAL_RE = re.compile(r"Total submission size int8\+zlib: (?P<value>\d+) bytes")
-BYTES_MODEL_RE = re.compile(r"Serialized model int8\+zlib: (?P<value>\d+) bytes")
+POST_SWA_RE = re.compile(
+    r"DIAGNOSTIC post_swa val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
+BYTES_TOTAL_RE = re.compile(r"Total submission size int(?:5|6|8)\+(?:zlib|zstd): (?P<value>\d+) bytes")
+BYTES_MODEL_RE = re.compile(r"Serialized model int(?:5|6|8)\+(?:zlib|zstd): (?P<value>\d+) bytes")
 BYTES_CODE_RE = re.compile(r"Code size: (?P<value>\d+) bytes")
+BYTES_TOTAL_RAW_RE = re.compile(r"Total submission size: (?P<value>\d+) bytes")
+BYTES_MODEL_RAW_RE = re.compile(r"Serialized model: (?P<value>\d+) bytes")
 EVAL_TIME_RE = re.compile(r"eval_time:(?P<value>\d+)ms")
 SEED_RE = re.compile(r"seed:(?P<seed>\d+)")
 OOM_RE = re.compile(r"(CUDA out of memory|OutOfMemoryError)")
@@ -67,16 +84,38 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         )
         result["params"]["iterations"] = int(last.group("iterations"))
 
-    final_match = FINAL_RE.search(text)
+    train_step_matches = list(TRAIN_STEP_RE.finditer(text))
+    if train_step_matches:
+        last_train = train_step_matches[-1]
+        result["metrics"].update(
+            {
+                "train_step_latest": int(last_train.group("step")),
+                "train_step_latest_loss": float(last_train.group("train_loss")),
+                "train_time_ms": int(last_train.group("train_time_ms")),
+                "step_avg_ms": float(last_train.group("step_avg_ms")),
+            }
+        )
+        result["params"].setdefault("iterations", int(last_train.group("iterations")))
+
+    final_match = FINAL_RE.search(text) or FINAL_INT6_RE.search(text)
     if final_match:
         result["metrics"]["post_quant_val_loss"] = float(final_match.group("val_loss"))
         result["metrics"]["post_quant_val_bpb"] = float(final_match.group("val_bpb"))
         result["status"] = "passed"
 
-    sliding_match = FINAL_SLIDING_RE.search(text)
+    sliding_match = FINAL_SLIDING_RE.search(text) or FINAL_INT6_SLIDING_RE.search(text)
     if sliding_match:
         result["metrics"]["sliding_window_val_loss"] = float(sliding_match.group("val_loss"))
         result["metrics"]["sliding_window_val_bpb"] = float(sliding_match.group("val_bpb"))
+        result["status"] = "passed"
+
+    sliding_s64_match = FINAL_INT6_SLIDING_S64_RE.search(text)
+    if sliding_s64_match:
+        result["metrics"]["sliding_window_s64_val_loss"] = float(sliding_s64_match.group("val_loss"))
+        result["metrics"]["sliding_window_s64_val_bpb"] = float(sliding_s64_match.group("val_bpb"))
+        # Treat the canonical stride-64 score as the primary sliding metric when present.
+        result["metrics"]["sliding_window_val_loss"] = float(sliding_s64_match.group("val_loss"))
+        result["metrics"]["sliding_window_val_bpb"] = float(sliding_s64_match.group("val_bpb"))
         result["status"] = "passed"
 
     ttt_match = FINAL_TTT_RE.search(text)
@@ -85,12 +124,23 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         result["metrics"]["ttt_lora_val_bpb"] = float(ttt_match.group("val_bpb"))
         result["status"] = "passed"
 
+    post_swa_match = POST_SWA_RE.search(text)
+    if post_swa_match:
+        result["metrics"]["post_swa_val_loss"] = float(post_swa_match.group("val_loss"))
+        result["metrics"]["post_swa_val_bpb"] = float(post_swa_match.group("val_bpb"))
+
     total_bytes = BYTES_TOTAL_RE.search(text)
     if total_bytes:
         result["metrics"]["artifact_bytes_total"] = int(total_bytes.group("value"))
+    total_bytes_raw = BYTES_TOTAL_RAW_RE.search(text)
+    if total_bytes_raw:
+        result["metrics"]["artifact_bytes_total_raw"] = int(total_bytes_raw.group("value"))
     model_bytes = BYTES_MODEL_RE.search(text)
     if model_bytes:
         result["metrics"]["artifact_bytes_model_int8_zlib"] = int(model_bytes.group("value"))
+    model_bytes_raw = BYTES_MODEL_RAW_RE.search(text)
+    if model_bytes_raw:
+        result["metrics"]["artifact_bytes_model_raw"] = int(model_bytes_raw.group("value"))
     code_bytes = BYTES_CODE_RE.search(text)
     if code_bytes:
         result["metrics"]["artifact_bytes_code"] = int(code_bytes.group("value"))
@@ -114,6 +164,12 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         result["failure_message"] = "CUDA OOM detected in log"
     elif result["status"] == "unknown" and step_matches:
         result["status"] = "incomplete"
+
+    metrics = result["metrics"]
+    if "train_step_final_val_bpb" in metrics and "post_quant_val_bpb" in metrics:
+        metrics["post_quant_gap_bpb"] = float(metrics["post_quant_val_bpb"]) - float(metrics["train_step_final_val_bpb"])
+    if "train_step_final_val_bpb" in metrics and "post_swa_val_bpb" in metrics:
+        metrics["swa_penalty_bpb"] = float(metrics["post_swa_val_bpb"]) - float(metrics["train_step_final_val_bpb"])
 
     return result
 

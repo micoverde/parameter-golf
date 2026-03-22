@@ -17,6 +17,7 @@ sys.path.insert(0, str(REPO_DIR))
 from tools.parse_train_log import parse_train_log
 
 DEFAULT_CHAMPION_PATH = REPO_DIR / "experiments" / "champions" / "current_champion.json"
+CONTEST_MAX_ARTIFACT_BYTES = 16_000_000
 
 
 def mean_or_none(values: list[float]) -> float | None:
@@ -64,6 +65,18 @@ def metric_loss_key() -> str:
     if base_key == "ttt_lora_val_bpb":
         return "ttt_lora_val_loss"
     return os.environ.get("METRIC_LOSS_KEY", "post_quant_val_loss")
+
+
+def legal_run(rep: dict[str, Any], score_key: str) -> bool:
+    if rep.get("status") != "passed":
+        return False
+    metrics = rep.get("metrics", {})
+    if score_key not in metrics:
+        return False
+    total_bytes = metrics.get("artifact_bytes_total")
+    if total_bytes is None:
+        return False
+    return float(total_bytes) <= CONTEST_MAX_ARTIFACT_BYTES
 
 
 def treatment_script() -> str:
@@ -115,6 +128,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     champion = json.loads(champion_path().read_text(encoding="utf-8"))
     champion_arm = copy.deepcopy(champion["arm"])
     champion_arm["arm_id"] = "CONTROL"
+    legal_successes = [rep for rep in replicates if legal_run(rep, score_key)]
     successes = [rep for rep in replicates if rep["status"] == "passed"]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
@@ -130,14 +144,26 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     mean_total_bytes = mean_or_none(
         [float(rep["metrics"]["artifact_bytes_total"]) for rep in successes if "artifact_bytes_total" in rep["metrics"]]
     )
+    mean_quant_gap = mean_or_none(
+        [float(rep["metrics"]["post_quant_gap_bpb"]) for rep in legal_successes if "post_quant_gap_bpb" in rep["metrics"]]
+    )
+    mean_step_avg_ms = mean_or_none(
+        [float(rep["metrics"]["step_avg_ms"]) for rep in legal_successes if "step_avg_ms" in rep["metrics"]]
+    )
 
     control_bpb = champion_metric(champion, score_key)
+    control_quant_gap = champion_metric(champion, "post_quant_gap_bpb") if "post_quant_gap_bpb" in champion["arm"]["metrics"] or "mean_post_quant_gap_bpb" in champion["arm"]["metrics"] else None
+    control_total_bytes = champion_metric(champion, "artifact_bytes_total") if "artifact_bytes_total" in champion["arm"]["metrics"] or "mean_artifact_bytes_total" in champion["arm"]["metrics"] else None
+    control_step_avg_ms = champion_metric(champion, "step_avg_ms") if "step_avg_ms" in champion["arm"]["metrics"] or "mean_step_avg_ms" in champion["arm"]["metrics"] else None
     treatment_success_rate = len(successes) / len(replicates) if replicates else 0.0
+    legal_success_rate = len(legal_successes) / len(replicates) if replicates else 0.0
     delta_bpb = mean_post_quant_bpb - control_bpb if mean_post_quant_bpb is not None else None
 
     status = "treatment_failed"
-    if mean_post_quant_bpb is not None:
+    if mean_post_quant_bpb is not None and legal_successes:
         status = "treatment_improved" if mean_post_quant_bpb < control_bpb else "treatment_regressed"
+    elif successes and not legal_successes:
+        status = "treatment_illegal"
 
     return {
         "comparison_id": f"pg_arena_{lane_name()}_battle_{battle_id}_{treatment_slug}",
@@ -145,6 +171,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         "date": date.today().isoformat(),
         "arena_tier": "tier1_battle",
         "lane_name": lane_name(),
+        "comparison_mode": "lexicographic_contest",
         "primary_metric_key": score_key,
         "primary_loss_key": loss_key,
         "control_arm": "CONTROL",
@@ -196,10 +223,16 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "primary_treatment_delta_bpb": delta_bpb,
             "control_post_quant_val_bpb": control_bpb,
             "control_post_quant_val_loss": champion_metric(champion, loss_key),
+            "control_post_quant_gap_bpb": control_quant_gap,
+            "control_artifact_bytes_total": control_total_bytes,
+            "control_step_avg_ms": control_step_avg_ms,
             "treatment_success_rate": treatment_success_rate,
+            "treatment_legal_success_rate": legal_success_rate,
             "treatment_mean_post_quant_val_bpb": mean_post_quant_bpb,
             "treatment_mean_post_quant_val_loss": mean_post_quant_loss,
+            "treatment_mean_post_quant_gap_bpb": mean_quant_gap,
             "treatment_mean_total_submission_bytes": mean_total_bytes,
+            "treatment_mean_step_avg_ms": mean_step_avg_ms,
             "treatment_vs_control_delta_bpb": delta_bpb,
             "treatment_failures": len(replicates) - len(successes),
         },
@@ -212,8 +245,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                 "metrics": {
                     "mean_post_quant_val_bpb": mean_post_quant_bpb,
                     "mean_post_quant_val_loss": mean_post_quant_loss,
+                    "mean_post_quant_gap_bpb": mean_quant_gap,
                     "mean_total_submission_bytes": mean_total_bytes,
+                    "mean_step_avg_ms": mean_step_avg_ms,
                     "success_rate": treatment_success_rate,
+                    "legal_success_rate": legal_success_rate,
                     "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
                     "metric_base_key": score_key,
                     "metric_loss_key": loss_key,
@@ -235,7 +271,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             },
         ],
         "next_action": {
-            "recommendation": "promote treatment only if mean_post_quant_val_bpb beats control and success rate is 1.0",
+            "recommendation": "promote only if the run is legal, sliding-window BPB improves, quant gap does not regress materially, and bytes/step time stay acceptable",
             "candidate_eval_batch_seqs": [32, 64, 128],
         },
     }

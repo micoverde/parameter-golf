@@ -1,0 +1,43 @@
+{
+  "champion_id": "pg_arena_frontier_public_pr374_control_2026_03_22",
+  "date": "2026-03-22",
+  "experiment_name": "parameter-golf-public-frontier-control",
+  "experiment_id": "public-pr374",
+  "summary_run_id": "public-pr374",
+  "arm_run_id": "public-pr374",
+  "comparison_json": "records/track_10min_16mb/2026-03-21_v38_TightSWA/submission.json",
+  "arm": {
+    "arm_id": "CONTROL",
+    "run_name": "public_pr374_exact_control",
+    "status": "public_record_reference",
+    "metrics": {
+      "post_quant_val_bpb": 1.14840099,
+      "post_quant_val_loss": 1.93902696,
+      "post_quant_gap_bpb": 0.00770099,
+      "sliding_window_val_bpb": 1.12461967,
+      "sliding_window_val_loss": 1.89886818,
+      "artifact_bytes_total": 15706024,
+      "artifact_bytes_model_int8_zlib": 15633200,
+      "artifact_bytes_code": 72824,
+      "step_avg_ms": 86.39,
+      "swa_penalty_bpb": 0.0,
+      "success_rate": 1.0,
+      "eval_batch_seqs": 1
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "train_shards": 80,
+      "train_batch_tokens": 786432,
+      "train_seq_len": 2048,
+      "eval_seq_len": 2048,
+      "eval_stride": 64,
+      "iterations": 20000,
+      "matrix_lr": 0.025,
+      "scalar_lr": 0.025,
+      "tied_embed_lr": 0.035,
+      "muon_momentum": 0.99,
+      "eval_mode": "sliding_window",
+      "treatment_name": "public_pr374_exact_control"
+    }
+  }
+}
