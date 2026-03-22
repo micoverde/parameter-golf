@@ -110,6 +110,9 @@ class Hyperparameters:
     ln_scale = bool(int(os.environ.get("LN_SCALE", "1")))
     dtg_enabled = bool(int(os.environ.get("DTG_ENABLED", "0")))
     late_qat_threshold = float(os.environ.get("LATE_QAT_THRESHOLD", 0.1))
+    late_qat_split = bool(int(os.environ.get("LATE_QAT_SPLIT", "0")))
+    late_qat_resume_path = os.environ.get("LATE_QAT_RESUME_PATH", "late_qat_resume.pt")
+    resume_path = os.environ.get("RESUME_PATH", "")
 
     # Value Embeddings: 1 shared table, per-layer scales (saves 50% VE params)
     ve_enabled = bool(int(os.environ.get("VE_ENABLED", "1")))
@@ -504,6 +507,14 @@ class TokenStream:
             remaining -= k
         return chunks[0] if len(chunks) == 1 else torch.cat(chunks)
 
+    def state_dict(self) -> dict[str, int]:
+        return {"file_idx": self.file_idx, "pos": self.pos}
+
+    def load_state_dict(self, state: dict[str, int]) -> None:
+        self.file_idx = int(state["file_idx"])
+        self.tokens = load_data_shard(self.files[self.file_idx])
+        self.pos = int(state["pos"])
+
 
 class DistributedTokenLoader:
     # Each call consumes a contiguous chunk from the shared token stream, then slices out
@@ -523,6 +534,12 @@ class DistributedTokenLoader:
         x = local[:-1].reshape(-1, seq_len)
         y = local[1:].reshape(-1, seq_len)
         return x.to(self.device, non_blocking=True), y.to(self.device, non_blocking=True)
+
+    def state_dict(self) -> dict[str, int]:
+        return self.stream.state_dict()
+
+    def load_state_dict(self, state: dict[str, int]) -> None:
+        self.stream.load_state_dict(state)
 
 # -----------------------------
 # TRANSFORMER MODULES
@@ -559,6 +576,29 @@ def restore_low_dim_params_to_fp32(module: nn.Module) -> None:
         for name, param in module.named_parameters():
             if (param.ndim < 2 or any(pattern in name for pattern in CONTROL_TENSOR_NAME_PATTERNS)) and param.dtype != torch.float32:
                 param.data = param.data.float()
+
+
+def capture_rng_state() -> dict[str, object]:
+    return {
+        "python": random.getstate(),
+        "numpy": np.random.get_state(),
+        "torch": torch.random.get_rng_state(),
+        "cuda": torch.cuda.get_rng_state_all(),
+    }
+
+
+def restore_rng_state(state: dict[str, object]) -> None:
+    random.setstate(state["python"])
+    np.random.set_state(state["numpy"])
+    torch.random.set_rng_state(state["torch"])
+    torch.cuda.set_rng_state_all(state["cuda"])
+
+
+def move_optimizer_state_to_device(optimizer: torch.optim.Optimizer, device: torch.device) -> None:
+    for state in optimizer.state.values():
+        for key, value in list(state.items()):
+            if torch.is_tensor(value):
+                state[key] = value.to(device)
 
 
 class Rotary(nn.Module):
@@ -1395,9 +1435,34 @@ def main() -> None:
         remaining_ms = max(max_wallclock_ms - elapsed_ms, 0.0)
         return remaining_ms / max(warmdown_ms, 1e-9) if remaining_ms <= warmdown_ms else 1.0
 
+    def save_restart_checkpoint(
+        path: Path,
+        *,
+        step: int,
+        training_time_ms: float,
+        swa_state: dict[str, Tensor] | None,
+        swa_count: int,
+        stop_after_step: int | None,
+    ) -> None:
+        checkpoint = {
+            "model_state": {name: tensor.detach().cpu().clone() for name, tensor in base_model.state_dict().items()},
+            "optimizer_states": [copy.deepcopy(opt.state_dict()) for opt in optimizers],
+            "train_loader_state": train_loader.state_dict(),
+            "rng_state": capture_rng_state(),
+            "step": int(step),
+            "training_time_ms": float(training_time_ms),
+            "swa_state": swa_state,
+            "swa_count": int(swa_count),
+            "stop_after_step": stop_after_step,
+        }
+        path.parent.mkdir(parents=True, exist_ok=True)
+        torch.save(checkpoint, path)
+
     # Warmup primes the compiled forward/backward/optimizer paths, then we restore the
     # initial weights/optimizer state so measured training starts from the true init.
-    if args.warmup_steps > 0:
+    resume_path = Path(args.resume_path) if args.resume_path else None
+    resumed = resume_path is not None and resume_path.exists()
+    if args.warmup_steps > 0 and not resumed:
         initial_model_state = {name: tensor.detach().cpu().clone() for name, tensor in base_model.state_dict().items()}
         initial_optimizer_states = [copy.deepcopy(opt.state_dict()) for opt in optimizers]
         model.train()
@@ -1432,10 +1497,24 @@ def main() -> None:
 
     training_time_ms = 0.0
     stop_after_step: int | None = None
+    step = 0
+    if resumed:
+        checkpoint = torch.load(resume_path, map_location="cpu")
+        base_model.load_state_dict(checkpoint["model_state"], strict=True)
+        for opt, state in zip(optimizers, checkpoint["optimizer_states"], strict=True):
+            opt.load_state_dict(state)
+            move_optimizer_state_to_device(opt, device)
+        train_loader.load_state_dict(checkpoint["train_loader_state"])
+        restore_rng_state(checkpoint["rng_state"])
+        step = int(checkpoint["step"])
+        training_time_ms = float(checkpoint["training_time_ms"])
+        swa_state = checkpoint.get("swa_state")
+        swa_count = int(checkpoint.get("swa_count", 0))
+        stop_after_step = checkpoint.get("stop_after_step")
+        log0(f"resume:loaded path:{resume_path} step:{step} train_time:{training_time_ms:.0f}ms qat_enabled:{int(CastedLinear._qat_enabled)}")
+
     torch.cuda.synchronize()
     t0 = time.perf_counter()
-
-    step = 0
     while True:
         last_step = step == args.iterations or (stop_after_step is not None and step >= stop_after_step)
 
@@ -1473,6 +1552,23 @@ def main() -> None:
         elapsed_ms = training_time_ms + 1000.0 * (time.perf_counter() - t0)
         scale = lr_mul(step, elapsed_ms)
         if args.late_qat_threshold > 0 and scale < args.late_qat_threshold and not CastedLinear._qat_enabled:
+            if args.late_qat_split:
+                checkpoint_path = Path(args.late_qat_resume_path)
+                if master_process:
+                    save_restart_checkpoint(
+                        checkpoint_path,
+                        step=step,
+                        training_time_ms=elapsed_ms,
+                        swa_state=swa_state,
+                        swa_count=swa_count,
+                        stop_after_step=stop_after_step,
+                    )
+                if distributed:
+                    dist.barrier()
+                log0(f"late_qat:checkpoint_saved step:{step} scale:{scale:.4f} path:{checkpoint_path}")
+                if distributed:
+                    dist.destroy_process_group()
+                return
             CastedLinear._qat_enabled = True
             log0(f"late_qat:enabled step:{step} scale:{scale:.4f}")
         zero_grad_all()
