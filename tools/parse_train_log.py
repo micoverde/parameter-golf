@@ -20,20 +20,35 @@ FINAL_RE = re.compile(
 FINAL_INT6_RE = re.compile(
     r"final_int6_roundtrip_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
+FINAL_INT6_WITH_TIME_RE = re.compile(
+    r"final_int6_roundtrip val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
+)
 FINAL_SLIDING_RE = re.compile(
     r"final_sliding_window_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
 FINAL_INT6_SLIDING_RE = re.compile(
     r"final_int6_sliding_window_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
+FINAL_INT6_SLIDING_WITH_TIME_RE = re.compile(
+    r"final_int6_sliding_window val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+stride:(?P<stride>\d+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
+)
 FINAL_INT6_SLIDING_S64_RE = re.compile(
     r"final_int6_sliding_window_s64_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
+FINAL_INT6_SLIDING_S64_WITH_TIME_RE = re.compile(
+    r"final_int6_sliding_window_s64 val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+stride:64\s+eval_time:(?P<eval_time_ms>\d+)ms"
 )
 FINAL_TTT_RE = re.compile(
     r"final_int8_ttt_lora val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
 POST_SWA_RE = re.compile(
     r"DIAGNOSTIC post_swa val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
+POST_TIGHTSWA_RE = re.compile(
+    r"DIAGNOSTIC post_tightswa val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
+)
+POST_EMA_RE = re.compile(
+    r"DIAGNOSTIC post_ema val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
 )
 BYTES_TOTAL_RE = re.compile(r"Total submission size int(?:5|6|8)\+(?:zlib|zstd): (?P<value>\d+) bytes")
 BYTES_MODEL_RE = re.compile(r"Serialized model int(?:5|6|8)\+(?:zlib|zstd): (?P<value>\d+) bytes")
@@ -46,6 +61,11 @@ OOM_RE = re.compile(r"(CUDA out of memory|OutOfMemoryError)")
 EVAL_MODE_RE = re.compile(r"final_eval_mode:(?P<mode>[a-zA-Z_]+)\s+stride:(?P<stride>\d+)\s+batch_seqs:(?P<batch>\d+)")
 PEAK_MEM_RE = re.compile(
     r"peak memory allocated: (?P<allocated>\d+) MiB reserved: (?P<reserved>\d+) MiB"
+)
+FLASH_ATTN_RE = re.compile(r"flash_attn_available:(?P<value>[01])")
+WORLD_SIZE_RE = re.compile(r"world_size:(?P<world_size>\d+)\s+grad_accum_steps:(?P<grad_accum_steps>\d+)")
+SDP_BACKENDS_RE = re.compile(
+    r"sdp_backends:cudnn=(?P<cudnn>\w+)\s+flash=(?P<flash>\w+)\s+mem_efficient=(?P<mem_efficient>\w+)\s+math=(?P<math>\w+)"
 )
 
 
@@ -69,6 +89,22 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
     seed_match = SEED_RE.search(text)
     if seed_match:
         result["params"]["seed"] = int(seed_match.group("seed"))
+
+    flash_attn_match = FLASH_ATTN_RE.search(text)
+    if flash_attn_match:
+        result["params"]["flash_attn_available"] = bool(int(flash_attn_match.group("value")))
+
+    world_size_match = WORLD_SIZE_RE.search(text)
+    if world_size_match:
+        result["params"]["world_size"] = int(world_size_match.group("world_size"))
+        result["params"]["grad_accum_steps"] = int(world_size_match.group("grad_accum_steps"))
+
+    sdp_backends_match = SDP_BACKENDS_RE.search(text)
+    if sdp_backends_match:
+        result["params"]["sdp_backend_cudnn"] = sdp_backends_match.group("cudnn") == "True"
+        result["params"]["sdp_backend_flash"] = sdp_backends_match.group("flash") == "True"
+        result["params"]["sdp_backend_mem_efficient"] = sdp_backends_match.group("mem_efficient") == "True"
+        result["params"]["sdp_backend_math"] = sdp_backends_match.group("math") == "True"
 
     step_matches = list(STEP_RE.finditer(text))
     if step_matches:
@@ -129,6 +165,33 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         result["metrics"]["post_swa_val_loss"] = float(post_swa_match.group("val_loss"))
         result["metrics"]["post_swa_val_bpb"] = float(post_swa_match.group("val_bpb"))
 
+    post_tightswa_match = POST_TIGHTSWA_RE.search(text)
+    if post_tightswa_match:
+        result["metrics"]["post_tightswa_val_loss"] = float(post_tightswa_match.group("val_loss"))
+        result["metrics"]["post_tightswa_val_bpb"] = float(post_tightswa_match.group("val_bpb"))
+        result["metrics"]["post_tightswa_eval_time_ms"] = int(post_tightswa_match.group("eval_time_ms"))
+
+    post_ema_match = POST_EMA_RE.search(text)
+    if post_ema_match:
+        result["metrics"]["post_ema_val_loss"] = float(post_ema_match.group("val_loss"))
+        result["metrics"]["post_ema_val_bpb"] = float(post_ema_match.group("val_bpb"))
+        result["metrics"]["post_ema_eval_time_ms"] = int(post_ema_match.group("eval_time_ms"))
+
+    post_quant_time_match = FINAL_INT6_WITH_TIME_RE.search(text)
+    if post_quant_time_match:
+        result["metrics"]["post_quant_eval_time_ms"] = int(post_quant_time_match.group("eval_time_ms"))
+
+    sliding_time_match = FINAL_INT6_SLIDING_WITH_TIME_RE.search(text)
+    if sliding_time_match:
+        result["metrics"]["sliding_window_eval_time_ms"] = int(sliding_time_match.group("eval_time_ms"))
+        result["metrics"]["eval_stride"] = int(sliding_time_match.group("stride"))
+
+    sliding_s64_time_match = FINAL_INT6_SLIDING_S64_WITH_TIME_RE.search(text)
+    if sliding_s64_time_match:
+        result["metrics"]["sliding_window_s64_eval_time_ms"] = int(sliding_s64_time_match.group("eval_time_ms"))
+        result["metrics"]["sliding_window_eval_time_ms"] = int(sliding_s64_time_match.group("eval_time_ms"))
+        result["metrics"]["eval_stride"] = 64
+
     total_bytes = BYTES_TOTAL_RE.search(text)
     if total_bytes:
         result["metrics"]["artifact_bytes_total"] = int(total_bytes.group("value"))
@@ -145,7 +208,7 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
     if code_bytes:
         result["metrics"]["artifact_bytes_code"] = int(code_bytes.group("value"))
     eval_time = EVAL_TIME_RE.search(text)
-    if eval_time:
+    if eval_time and "eval_time_ms" not in result["metrics"]:
         result["metrics"]["eval_time_ms"] = int(eval_time.group("value"))
     peak_mem = PEAK_MEM_RE.search(text)
     if peak_mem:
@@ -170,6 +233,16 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         metrics["post_quant_gap_bpb"] = float(metrics["post_quant_val_bpb"]) - float(metrics["train_step_final_val_bpb"])
     if "train_step_final_val_bpb" in metrics and "post_swa_val_bpb" in metrics:
         metrics["swa_penalty_bpb"] = float(metrics["post_swa_val_bpb"]) - float(metrics["train_step_final_val_bpb"])
+    if "train_step_final_val_bpb" in metrics and "post_tightswa_val_bpb" in metrics:
+        metrics["tightswa_penalty_bpb"] = float(metrics["post_tightswa_val_bpb"]) - float(metrics["train_step_final_val_bpb"])
+    if "train_step_final_val_bpb" in metrics and "post_ema_val_bpb" in metrics:
+        metrics["ema_penalty_bpb"] = float(metrics["post_ema_val_bpb"]) - float(metrics["train_step_final_val_bpb"])
+    if "sliding_window_eval_time_ms" in metrics:
+        metrics["eval_time_ms"] = int(metrics["sliding_window_eval_time_ms"])
+    elif "post_quant_eval_time_ms" in metrics:
+        metrics["eval_time_ms"] = int(metrics["post_quant_eval_time_ms"])
+    elif "post_ema_eval_time_ms" in metrics:
+        metrics["eval_time_ms"] = int(metrics["post_ema_eval_time_ms"])
 
     return result
 

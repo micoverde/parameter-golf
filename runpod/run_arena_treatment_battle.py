@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import copy
 import json
+import math
 import os
 import statistics
 import subprocess
@@ -30,6 +31,10 @@ def env_int(name: str, default: int) -> int:
 
 def env_float(name: str, default: float) -> float:
     return float(os.environ.get(name, str(default)))
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    return os.environ.get(name, "1" if default else "0") not in {"0", "false", "False", ""}
 
 
 def champion_path() -> Path:
@@ -79,6 +84,34 @@ def legal_run(rep: dict[str, Any], score_key: str) -> bool:
     return float(total_bytes) <= CONTEST_MAX_ARTIFACT_BYTES
 
 
+def quarantine_reason(rep: dict[str, Any]) -> str | None:
+    metrics = rep.get("metrics", {})
+    reasons: list[str] = []
+    artifact_floor_bytes = env_int("ARTIFACT_FLOOR_BYTES", 0)
+    quant_gap_quarantine_bpb = env_float("QUANT_GAP_QUARANTINE_BPB", math.inf)
+    low_artifact_probe_ok = env_bool("ALLOW_LOW_ARTIFACT_PROBE", False)
+    if artifact_floor_bytes > 0 and not low_artifact_probe_ok:
+        total_bytes = metrics.get("artifact_bytes_total")
+        if total_bytes is None or float(total_bytes) < artifact_floor_bytes:
+            reasons.append(
+                f"artifact_below_floor:{int(float(total_bytes)) if total_bytes is not None else 'missing'}<{artifact_floor_bytes}"
+            )
+    if math.isfinite(quant_gap_quarantine_bpb):
+        quant_gap = metrics.get("post_quant_gap_bpb")
+        if quant_gap is None:
+            reasons.append("quant_gap_missing")
+        elif float(quant_gap) > quant_gap_quarantine_bpb:
+            reasons.append(f"quant_gap_exceeds:{float(quant_gap):.6f}>{quant_gap_quarantine_bpb:.6f}")
+    return ",".join(reasons) if reasons else None
+
+
+def consistent_param(replicates: list[dict[str, Any]], key: str) -> Any:
+    values = {rep.get("params", {}).get(key) for rep in replicates if key in rep.get("params", {})}
+    if len(values) == 1:
+        return next(iter(values))
+    return None
+
+
 def treatment_script() -> str:
     return os.environ.get("TREATMENT_SCRIPT", "runpod/smoke_seq4096_sliding_eval.sh")
 
@@ -118,6 +151,7 @@ def run_one(seed: int, battle_id: str, log_dir: Path) -> dict[str, Any]:
             check=False,
         )
     parsed = parse_train_log(log_path)
+    parsed["quarantine_reason"] = quarantine_reason(parsed) if parsed.get("status") == "passed" else None
     parsed["run_name"] = env["RUN_ID"]
     parsed["returncode"] = completed.returncode
     parsed["log_path"] = str(log_path.relative_to(REPO_DIR))
@@ -128,27 +162,29 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     champion = json.loads(champion_path().read_text(encoding="utf-8"))
     champion_arm = copy.deepcopy(champion["arm"])
     champion_arm["arm_id"] = "CONTROL"
-    legal_successes = [rep for rep in replicates if legal_run(rep, score_key)]
     successes = [rep for rep in replicates if rep["status"] == "passed"]
+    legal_successes = [rep for rep in successes if legal_run(rep, score_key)]
+    sane_legal_successes = [rep for rep in legal_successes if not rep.get("quarantine_reason")]
+    quarantined_successes = [rep for rep in legal_successes if rep.get("quarantine_reason")]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
     score_key = metric_base_key()
     loss_key = metric_loss_key()
 
     mean_post_quant_bpb = mean_or_none(
-        [float(rep["metrics"][score_key]) for rep in successes if score_key in rep["metrics"]]
+        [float(rep["metrics"][score_key]) for rep in sane_legal_successes if score_key in rep["metrics"]]
     )
     mean_post_quant_loss = mean_or_none(
-        [float(rep["metrics"][loss_key]) for rep in successes if loss_key in rep["metrics"]]
+        [float(rep["metrics"][loss_key]) for rep in sane_legal_successes if loss_key in rep["metrics"]]
     )
     mean_total_bytes = mean_or_none(
-        [float(rep["metrics"]["artifact_bytes_total"]) for rep in successes if "artifact_bytes_total" in rep["metrics"]]
+        [float(rep["metrics"]["artifact_bytes_total"]) for rep in sane_legal_successes if "artifact_bytes_total" in rep["metrics"]]
     )
     mean_quant_gap = mean_or_none(
-        [float(rep["metrics"]["post_quant_gap_bpb"]) for rep in legal_successes if "post_quant_gap_bpb" in rep["metrics"]]
+        [float(rep["metrics"]["post_quant_gap_bpb"]) for rep in sane_legal_successes if "post_quant_gap_bpb" in rep["metrics"]]
     )
     mean_step_avg_ms = mean_or_none(
-        [float(rep["metrics"]["step_avg_ms"]) for rep in legal_successes if "step_avg_ms" in rep["metrics"]]
+        [float(rep["metrics"]["step_avg_ms"]) for rep in sane_legal_successes if "step_avg_ms" in rep["metrics"]]
     )
 
     control_bpb = champion_metric(champion, score_key)
@@ -157,11 +193,14 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     control_step_avg_ms = champion_metric(champion, "step_avg_ms") if "step_avg_ms" in champion["arm"]["metrics"] or "mean_step_avg_ms" in champion["arm"]["metrics"] else None
     treatment_success_rate = len(successes) / len(replicates) if replicates else 0.0
     legal_success_rate = len(legal_successes) / len(replicates) if replicates else 0.0
+    sane_legal_success_rate = len(sane_legal_successes) / len(replicates) if replicates else 0.0
     delta_bpb = mean_post_quant_bpb - control_bpb if mean_post_quant_bpb is not None else None
 
     status = "treatment_failed"
-    if mean_post_quant_bpb is not None and legal_successes:
+    if mean_post_quant_bpb is not None and sane_legal_successes:
         status = "treatment_improved" if mean_post_quant_bpb < control_bpb else "treatment_regressed"
+    elif legal_successes and quarantined_successes and not sane_legal_successes:
+        status = "treatment_quarantined"
     elif successes and not legal_successes:
         status = "treatment_illegal"
 
@@ -201,6 +240,13 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "template_id": os.environ.get("TEMPLATE_ID", "y5cejece4j"),
             "image_name": os.environ.get("IMAGE_NAME", "runpod/parameter-golf:latest"),
             "battle_id": battle_id,
+            "flash_attn_available": consistent_param(replicates, "flash_attn_available"),
+            "world_size": consistent_param(replicates, "world_size"),
+            "grad_accum_steps": consistent_param(replicates, "grad_accum_steps"),
+            "sdp_backend_cudnn": consistent_param(replicates, "sdp_backend_cudnn"),
+            "sdp_backend_flash": consistent_param(replicates, "sdp_backend_flash"),
+            "sdp_backend_mem_efficient": consistent_param(replicates, "sdp_backend_mem_efficient"),
+            "sdp_backend_math": consistent_param(replicates, "sdp_backend_math"),
             "guide_source": "/tmp/plexor-main-arena-doc/docs/guides/ARENA_OPS_AND_DEVELOPMENT_GUIDE.md",
         },
         "fixture": {
@@ -228,6 +274,8 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "control_step_avg_ms": control_step_avg_ms,
             "treatment_success_rate": treatment_success_rate,
             "treatment_legal_success_rate": legal_success_rate,
+            "treatment_sane_legal_success_rate": sane_legal_success_rate,
+            "treatment_quarantined_runs": len(quarantined_successes),
             "treatment_mean_post_quant_val_bpb": mean_post_quant_bpb,
             "treatment_mean_post_quant_val_loss": mean_post_quant_loss,
             "treatment_mean_post_quant_gap_bpb": mean_quant_gap,
@@ -235,6 +283,8 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "treatment_mean_step_avg_ms": mean_step_avg_ms,
             "treatment_vs_control_delta_bpb": delta_bpb,
             "treatment_failures": len(replicates) - len(successes),
+            "artifact_floor_bytes": env_int("ARTIFACT_FLOOR_BYTES", 0),
+            "quant_gap_quarantine_bpb": env_float("QUANT_GAP_QUARANTINE_BPB", math.inf),
         },
         "arms": [
             champion_arm,
@@ -250,9 +300,13 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                     "mean_step_avg_ms": mean_step_avg_ms,
                     "success_rate": treatment_success_rate,
                     "legal_success_rate": legal_success_rate,
+                    "sane_legal_success_rate": sane_legal_success_rate,
+                    "quarantined_runs": len(quarantined_successes),
                     "eval_batch_seqs": int(os.environ.get("EVAL_BATCH_SEQS", "64")),
                     "metric_base_key": score_key,
                     "metric_loss_key": loss_key,
+                    "artifact_floor_bytes": env_int("ARTIFACT_FLOOR_BYTES", 0),
+                    "quant_gap_quarantine_bpb": env_float("QUANT_GAP_QUARANTINE_BPB", math.inf),
                 },
                 "params": {
                     "train_batch_tokens": env_int("TRAIN_BATCH_TOKENS", 393216),
@@ -271,7 +325,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             },
         ],
         "next_action": {
-            "recommendation": "promote only if the run is legal, sliding-window BPB improves, quant gap does not regress materially, and bytes/step time stay acceptable",
+            "recommendation": "promote only if the run is legal, survives rung-1 quarantine, sliding-window BPB improves, quant gap does not regress materially, and bytes/step time stay acceptable",
             "candidate_eval_batch_seqs": [32, 64, 128],
         },
     }
