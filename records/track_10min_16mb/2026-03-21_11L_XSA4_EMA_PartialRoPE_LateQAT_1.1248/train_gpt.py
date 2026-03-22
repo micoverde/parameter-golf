@@ -548,6 +548,11 @@ class CastedLinear(nn.Linear):
         return F.linear(x, w, bias)
 
 
+def compile_train_model(base_model: nn.Module, distributed: bool, local_rank: int) -> nn.Module:
+    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True)
+    return DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
+
+
 def restore_low_dim_params_to_fp32(module: nn.Module) -> None:
     # Keep small/control parameters in fp32 even when the model body runs in bf16.
     with torch.no_grad():
@@ -1195,8 +1200,7 @@ def main() -> None:
         if isinstance(module, CastedLinear):
             module.float()
     restore_low_dim_params_to_fp32(base_model)
-    compiled_model = torch.compile(base_model, dynamic=False, fullgraph=True)
-    model: nn.Module = DDP(compiled_model, device_ids=[local_rank], broadcast_buffers=False) if distributed else compiled_model
+    model: nn.Module = compile_train_model(base_model, distributed, local_rank)
 
     # Optimizer split:
     # - token embedding (Adam) uses EMBED_LR
@@ -1386,7 +1390,10 @@ def main() -> None:
         qat_threshold = float(os.environ.get("QAT_THRESHOLD", "0.1"))
         if args.late_qat and scale < qat_threshold and not CastedLinear._qat_enabled:
             CastedLinear._qat_enabled = True
-            log0(f"late_qat:enabled step:{step} scale:{scale:.4f}")
+            if distributed:
+                dist.barrier()
+            model = compile_train_model(base_model, distributed, local_rank)
+            log0(f"late_qat:enabled step:{step} scale:{scale:.4f} recompiled:1")
         zero_grad_all()
         train_loss = torch.zeros((), device=device)
         for micro_step in range(grad_accum_steps):
