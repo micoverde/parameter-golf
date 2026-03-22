@@ -93,6 +93,7 @@ class Hyperparameters:
     ema_decay = float(os.environ.get("EMA_DECAY", 0.997))
     gptq_lite_enabled = bool(int(os.environ.get("GPTQ_LITE_ENABLED", "1")))
     gptq_lite_percentiles = os.environ.get("GPTQ_LITE_PERCENTILES", "0.9990,0.9995,0.9999,0.99999,1.0")
+    tight_swa_diagnostic = bool(int(os.environ.get("TIGHT_SWA_DIAGNOSTIC", "1")))
 def zeropower_via_newtonschulz5(G: Tensor, steps: int = 10, eps: float = 1e-7) -> Tensor:
     a, b, c = (3.4445, -4.7750, 2.0315)
     X = G.bfloat16()
@@ -1222,6 +1223,7 @@ def main() -> None:
     swa_count = 0
     ema_state = {name: t.detach().float().clone() for name, t in base_model.state_dict().items()}
     ema_decay = args.ema_decay
+    log0(f"ema_state_tensors:{len(ema_state)} ema_decay:{ema_decay:.6f}")
     training_time_ms = 0.0
     stop_after_step: int | None = None
     torch.cuda.synchronize()
@@ -1322,6 +1324,34 @@ def main() -> None:
         f"peak memory allocated: {torch.cuda.max_memory_allocated() // 1024 // 1024} MiB "
         f"reserved: {torch.cuda.max_memory_reserved() // 1024 // 1024} MiB"
     )
+    current_state = {name: t.detach().cpu().clone() for name, t in base_model.state_dict().items()}
+    if args.tight_swa_diagnostic and swa_state is not None and swa_count > 0:
+        log0(f"tightswa:applying averaged {swa_count} checkpoints")
+        tight_swa_state = {
+            name: (tensor / swa_count).to(dtype=current_state[name].dtype)
+            for name, tensor in swa_state.items()
+        }
+        base_model.load_state_dict(tight_swa_state, strict=True)
+        torch.cuda.synchronize()
+        t_diag_swa = time.perf_counter()
+        diag_swa_val_loss, diag_swa_val_bpb = eval_val(
+            args,
+            compiled_model,
+            rank,
+            world_size,
+            device,
+            grad_accum_steps,
+            val_tokens,
+            base_bytes_lut,
+            has_leading_space_lut,
+            is_boundary_token_lut,
+        )
+        torch.cuda.synchronize()
+        log0(
+            f"DIAGNOSTIC post_tightswa val_loss:{diag_swa_val_loss:.4f} val_bpb:{diag_swa_val_bpb:.4f} "
+            f"eval_time:{1000.0 * (time.perf_counter() - t_diag_swa):.0f}ms"
+        )
+        base_model.load_state_dict(current_state, strict=True)
     # Apply EMA weights (better than SWA alone per PR#401)
     if args.ema_enabled:
         log0("ema:applying EMA weights")
@@ -1343,6 +1373,10 @@ def main() -> None:
     )
     full_state_dict = base_model.state_dict()
     export_sd = {k: v for k, v in full_state_dict.items() if "mtp_heads" not in k}
+    log0(
+        f"export_state_tensors:{len(export_sd)} model_state_tensors:{len(full_state_dict)} "
+        f"ema_enabled:{int(args.ema_enabled)}"
+    )
     excluded_mtp = sum(int(t.numel()) for k, t in full_state_dict.items() if "mtp_heads" in k)
     if excluded_mtp > 0:
         log0(f"export_excluding_mtp_params:{excluded_mtp}")
