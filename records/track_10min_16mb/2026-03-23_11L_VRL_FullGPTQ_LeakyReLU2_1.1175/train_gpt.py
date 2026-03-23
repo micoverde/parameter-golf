@@ -781,6 +781,62 @@ def main():
         if console: print(msg)
         if logfile:
             with open(logfile, "a", encoding="utf-8") as f: print(msg, file=f)
+    def log_stage_metric(stage_name, val_loss, val_bpb, eval_time_ms):
+        log0(
+            f"STAGE_METRIC name:{stage_name} val_loss:{val_loss:.8f} "
+            f"val_bpb:{val_bpb:.8f} eval_time:{int(round(eval_time_ms))}ms"
+        )
+    def log_state_similarity(stage_name, reference_name, reference_state, stage_state):
+        ref_sq = 0.0; stage_sq = 0.0; dot = 0.0; tensor_count = 0
+        for name in sorted(set(reference_state) & set(stage_state)):
+            ref = reference_state[name]; cur = stage_state[name]
+            if not (ref.is_floating_point() and cur.is_floating_point()): continue
+            if ref.shape != cur.shape: continue
+            ref_flat = ref.detach().float().reshape(-1).cpu()
+            cur_flat = cur.detach().float().reshape(-1).cpu()
+            ref_sq += float(torch.dot(ref_flat, ref_flat).item())
+            stage_sq += float(torch.dot(cur_flat, cur_flat).item())
+            dot += float(torch.dot(ref_flat, cur_flat).item())
+            tensor_count += 1
+        if tensor_count == 0:
+            log0(f"STAGE_STATE name:{stage_name} ref:{reference_name} tensors:0 norm_ratio:nan cosine:nan")
+            return
+        ref_norm = math.sqrt(max(ref_sq, 0.0)); stage_norm = math.sqrt(max(stage_sq, 0.0))
+        cosine = dot / max(ref_norm * stage_norm, 1e-12)
+        norm_ratio = stage_norm / max(ref_norm, 1e-12)
+        log0(
+            f"STAGE_STATE name:{stage_name} ref:{reference_name} tensors:{tensor_count} "
+            f"norm_ratio:{norm_ratio:.6f} cosine:{cosine:.6f}"
+        )
+    def log_quant_stats(stage_name, quant_result, quant_meta):
+        scale_parts = []; int6_tensors = 0; int8_tensors = 0; clip_hits = 0; zero_hits = 0; total_q = 0
+        for name, info in quant_meta.items():
+            if not isinstance(info, dict): continue
+            qname, sname = name + ".q", name + ".scale"
+            if qname not in quant_result or sname not in quant_result: continue
+            q = quant_result[qname].detach().cpu()
+            s = quant_result[sname].detach().float().reshape(-1).cpu()
+            if s.numel() > 0: scale_parts.append(s)
+            qtype = info.get("type")
+            if qtype == "int6":
+                int6_tensors += 1; clip_limit = 31
+            else:
+                int8_tensors += 1; clip_limit = 127
+            clip_hits += int((q.abs() >= clip_limit).sum().item())
+            zero_hits += int((q == 0).sum().item())
+            total_q += int(q.numel())
+        if scale_parts:
+            scales = torch.cat(scale_parts)
+            scale_min = float(scales.min().item()); scale_p50 = float(torch.quantile(scales, 0.5).item()); scale_max = float(scales.max().item())
+        else:
+            scale_min = float("nan"); scale_p50 = float("nan"); scale_max = float("nan")
+        clip_frac = clip_hits / max(total_q, 1); near_zero_frac = zero_hits / max(total_q, 1)
+        log0(
+            f"QUANT_STATS stage:{stage_name} tensors:{int6_tensors + int8_tensors} "
+            f"int6_tensors:{int6_tensors} int8_tensors:{int8_tensors} "
+            f"scale_min:{scale_min:.6e} scale_p50:{scale_p50:.6e} scale_max:{scale_max:.6e} "
+            f"clip_frac:{clip_frac:.6e} near_zero_frac:{near_zero_frac:.6e}"
+        )
     log0(code, console=False); log0("=" * 100, console=False)
     random.seed(args.seed); np.random.seed(args.seed); torch.manual_seed(args.seed); torch.cuda.manual_seed_all(args.seed)
     sp = spm.SentencePieceProcessor(model_file=args.tokenizer_path)
@@ -879,6 +935,7 @@ def main():
         if distributed: model.require_backward_grad_sync = True
         train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
     ema_state = {name: t.detach().float().clone() for name, t in base_model.state_dict().items()}
+    log0(f"ema_state_tensors:{len(ema_state)} ema_decay:{args.ema_decay:.6f}")
     # MAIN TRAINING LOOP
     training_time_ms, stop_after_step = 0.0, None
     swa_state, swa_count = None, 0
@@ -935,12 +992,22 @@ def main():
             rct = torch.tensor(int(reached_cap), device=device); dist.all_reduce(rct, op=dist.ReduceOp.MAX); reached_cap = bool(rct.item())
         if stop_after_step is None and reached_cap: stop_after_step = step
     log0(f"peak memory allocated: {torch.cuda.max_memory_allocated()//1024//1024} MiB reserved: {torch.cuda.max_memory_reserved()//1024//1024} MiB")
+    raw_state = {name: t.detach().cpu().clone() for name, t in base_model.state_dict().items()}
+    torch.cuda.synchronize(); t_raw = time.perf_counter()
+    raw_vl, raw_vb = eval_val(args, model, rank, world_size, device, grad_accum_steps,
+                              val_tokens, base_bytes_lut, has_leading_space_lut, is_boundary_token_lut)
+    torch.cuda.synchronize(); log_stage_metric("raw_final", raw_vl, raw_vb, 1000.0 * (time.perf_counter() - t_raw))
 
     # Apply EMA weights
     log0("ema:applying EMA weights")
     current_state = base_model.state_dict()
     avg_state = {name: t.to(dtype=current_state[name].dtype) for name, t in ema_state.items()}
     base_model.load_state_dict(avg_state, strict=True)
+    torch.cuda.synchronize(); t_ema = time.perf_counter()
+    ema_vl, ema_vb = eval_val(args, model, rank, world_size, device, grad_accum_steps,
+                              val_tokens, base_bytes_lut, has_leading_space_lut, is_boundary_token_lut)
+    torch.cuda.synchronize(); log_stage_metric("post_ema", ema_vl, ema_vb, 1000.0 * (time.perf_counter() - t_ema))
+    log_state_similarity("post_ema", "raw_final", raw_state, avg_state)
 
     # v41: GPTQ calibration — collect Hessians AFTER applying EMA weights
     log0(f"gptq:calibrating with {args.gptq_calib_batches} batches...")
@@ -959,8 +1026,10 @@ def main():
 
     # QUANTIZE + SAVE (raw binary serialization)
     sd_cpu = {k: v.detach().cpu() for k, v in base_model.state_dict().items()}
+    log0(f"export_state_tensors:{len(sd_cpu)} model_state_tensors:{len(sd_cpu)} ema_enabled:1")
     code_bytes = len(code.encode("utf-8")); size_limit = 16_000_000
     quant_result, quant_meta = quantize_state_dict_mixed(sd_cpu, hessians=hessian_map)
+    log_quant_stats("post_quant_export", quant_result, quant_meta)
     # Post-quant magnitude pruning: zero out smallest int6 weights for better compression
     if args.prune_pct > 0:
         all_int6_vals = []
@@ -1050,6 +1119,8 @@ def main():
     torch.cuda.synchronize(); eval_time = time.perf_counter() - t_eval
     log0(f"final_int6_zstd_roundtrip val_loss:{q_vl:.4f} val_bpb:{q_vb:.4f} eval_time:{eval_time*1000:.0f}ms")
     log0(f"final_int6_zstd_roundtrip_exact val_loss:{q_vl:.8f} val_bpb:{q_vb:.8f}")
+    log_stage_metric("post_quant", q_vl, q_vb, eval_time * 1000.0)
+    log_stage_metric("sliding_window", q_vl, q_vb, eval_time * 1000.0)
     if distributed: dist.destroy_process_group()
 
 if __name__ == "__main__":
