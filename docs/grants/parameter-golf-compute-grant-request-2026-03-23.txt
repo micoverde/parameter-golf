@@ -1,0 +1,63 @@
+OpenAI Parameter Golf compute request URL:
+https://openai.com/index/parameter-golf/
+
+Recommended request level:
+Development grant (~$500 / ~160 compute hours)
+
+Reason for recommended level:
+- We have a concrete approach, public reproducible evidence, verified H100 experimentation, and a clear clean-frontier experiment plan.
+- We are actively iterating, but our best verified score is not yet close enough to the live clean frontier to justify claiming "near the top of the leaderboard."
+- After a stable PR569-class clean reproduction, the next ask should be the Advanced competitor grant (~$1000 / ~320 compute hours).
+
+Suggested form values:
+
+First name:
+Warren
+
+Last name:
+Johnson
+
+Email:
+warrenjo@parryjohnson.com
+
+GitHub username:
+micoverde
+
+Country of residence:
+United States of America
+
+Current role:
+Industry
+
+What level of compute support are you requesting?
+Development grant (~$500 / ~160 compute hours). I have a concrete approach, have experimented, and need more compute.
+
+Confirmation:
+Yes
+
+Suggested justification / notes to paste into the request:
+I am actively competing in the OpenAI Parameter Golf challenge and now have public reproducible evidence plus verified H100 experimentation. I have an open public non-record PR documenting our current frontier-development artifacts, including an Azure T4 proxy control run and a verified Azure 1xH100 engineering run under the 16MB artifact cap.
+
+Public evidence:
+- PR: https://github.com/micoverde/parameter-golf/pull/13
+
+Current verified results:
+- Azure T4 proxy control: 3.20873382 BPB, artifact 15,536,094 bytes
+- Azure 1xH100 engineering run: 1.26233375 exact post-quant BPB, artifact 12,727,250 bytes
+
+Current frontier plan:
+- exact clean-frontier reproduction against the latest public non-TTT SOTA
+- exporter / quantization alignment work
+- controlled ablations with matched run manifests
+- transition from single-GPU engineering runs to submission-grade 8xH100 runs
+
+What additional credits will be used for:
+- 8xH100 exact clean-frontier reproductions
+- matched ablations on exporter / QAT / quantization-path changes
+- 3-seed submission-grade validation once a candidate beats the current clean control
+
+Why the credits matter:
+We are past the pure setup phase. We now have working infrastructure, public records artifacts, verified H100 telemetry, and a concrete experiment ladder. Additional credits would directly fund reproducible 8xH100 experiments rather than speculative setup work.
+
+Optional stronger ask later:
+Advanced competitor grant (~$1000 / ~320 compute hours). Use this only after we have a stable clean-frontier reproduction that is genuinely near the live SOTA.
