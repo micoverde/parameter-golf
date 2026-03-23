@@ -1,0 +1,58 @@
+{
+  "champion_id": "pg_arena_frontier_public_pr414_clean_control_2026_03_22",
+  "date": "2026-03-22",
+  "experiment_name": "parameter-golf-public-frontier-clean-control",
+  "experiment_id": "public-pr414-clean",
+  "summary_run_id": "public-pr414-clean",
+  "arm_run_id": "public-pr414-clean",
+  "comparison_json": "records/track_10min_16mb/2026-03-22_11L_EMA_GPTQ-lite_warmdown3500_QAT015_1.1233/submission.json",
+  "source_url": "https://github.com/openai/parameter-golf/pull/414",
+  "control_class": "clean_public_reference_historical",
+  "evidence_level": "public_merged_three_seed",
+  "rules_status": "clean_non_ttt",
+  "compute_scope": "public_8xh100_reference",
+  "promotion_eligible": false,
+  "artifacts_present": true,
+  "metric_complete": true,
+  "superseded_by": "pg_arena_frontier_public_clean_reference_2026_03_23_pr569",
+  "arm": {
+    "arm_id": "CONTROL",
+    "run_name": "public_pr414_exact_clean_control",
+    "status": "public_record_reference",
+    "metrics": {
+      "post_quant_val_bpb": 1.1233,
+      "post_quant_gap_bpb": null,
+      "sliding_window_val_bpb": 1.1233,
+      "artifact_bytes_total": 15550000,
+      "step_avg_ms": 86.0,
+      "success_rate": 1.0
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "train_shards": 80,
+      "train_batch_tokens": 786432,
+      "train_seq_len": 2048,
+      "eval_seq_len": 2048,
+      "eval_stride": 64,
+      "iterations": 20000,
+      "matrix_lr": 0.025,
+      "scalar_lr": 0.025,
+      "tied_embed_lr": 0.035,
+      "muon_momentum": 0.99,
+      "eval_mode": "sliding_window",
+      "treatment_name": "public_pr414_exact_clean_control"
+    },
+    "notes": {
+      "source_pr": 414,
+      "source_summary": "11L EMA + GPTQ-lite + warmdown3500 + QAT@0.15",
+      "historical_status": "superseded by PR569 clean non-TTT reference on 2026-03-23",
+      "mean_over_seeds": [1337, 42, 2024],
+      "claimed_deltas_vs_pr374_bpb": {
+        "gptq_lite": -0.0006,
+        "ema": -0.0006,
+        "warmdown3500": -0.0002,
+        "qat_0_15": -0.0001
+      }
+    }
+  }
+}

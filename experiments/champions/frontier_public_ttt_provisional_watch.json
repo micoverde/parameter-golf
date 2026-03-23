@@ -1,0 +1,39 @@
+{
+  "watch_id": "pg_arena_frontier_public_ttt_provisional_watch_2026_03_23",
+  "date": "2026-03-23",
+  "status": "watch_only_under_rules_scrutiny",
+  "issue": 402,
+  "controls": [
+    {
+      "pr": 549,
+      "score_bpb": 1.1194,
+      "label": "score_first_legal_ttt_parallel_muon",
+      "status": "strongest_compliant_pattern_observed"
+    },
+    {
+      "pr": 461,
+      "score_bpb": 1.14458,
+      "label": "score_first_depth_recurrence_ttt",
+      "status": "cleanest_non_record_compliance_template"
+    },
+    {
+      "pr": 421,
+      "score_bpb": 1.1466,
+      "label": "working_qat_score_first_ttt_single_seed",
+      "status": "code_path_looks_compliant_but_still_listed_in_issue_402"
+    },
+    {
+      "pr": 442,
+      "score_bpb": 1.1027,
+      "label": "adamw_ttt_10ep",
+      "status": "headline_low_score_but_currently_noncompliant_under_issue_402"
+    },
+    {
+      "pr": 568,
+      "score_bpb": 0.7853,
+      "label": "proteus_v8_multi_epoch_rescoring",
+      "status": "likely_noncompliant_last_epoch_scoring_pattern"
+    }
+  ],
+  "notes": "Shadow-lane only. Build the causal SCORE->TRAIN->ADVANCE harness from PR461/PR549, but spend near-zero compute on TTT until issue #402 enforcement catches up with the written rule."
+}

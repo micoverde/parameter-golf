@@ -17,7 +17,7 @@ sys.path.insert(0, str(REPO_DIR))
 
 from tools.parse_train_log import parse_train_log
 
-DEFAULT_CHAMPION_PATH = REPO_DIR / "experiments" / "champions" / "current_champion.json"
+DEFAULT_CHAMPION_PATH = REPO_DIR / "experiments" / "champions" / "frontier_public_clean_current_reference.json"
 CONTEST_MAX_ARTIFACT_BYTES = 16_000_000
 
 
@@ -59,6 +59,18 @@ def champion_metric(champion: dict[str, Any], base_key: str) -> float:
     raise KeyError(f"champion metric not found: {base_key}")
 
 
+def champion_metric_or_none(champion: dict[str, Any], base_key: str) -> float | None:
+    metrics = champion.get("arm", {}).get("metrics", {})
+    raw = metrics.get(base_key, metrics.get(f"mean_{base_key}"))
+    if raw is None:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
 def metric_base_key() -> str:
     return os.environ.get("METRIC_BASE_KEY", "post_quant_val_bpb")
 
@@ -81,7 +93,10 @@ def legal_run(rep: dict[str, Any], score_key: str) -> bool:
     total_bytes = metrics.get("artifact_bytes_total")
     if total_bytes is None:
         return False
-    return float(total_bytes) <= CONTEST_MAX_ARTIFACT_BYTES
+    try:
+        return float(total_bytes) <= CONTEST_MAX_ARTIFACT_BYTES
+    except (TypeError, ValueError):
+        return False
 
 
 def quarantine_reason(rep: dict[str, Any]) -> str | None:
@@ -162,19 +177,19 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     champion = json.loads(champion_path().read_text(encoding="utf-8"))
     champion_arm = copy.deepcopy(champion["arm"])
     champion_arm["arm_id"] = "CONTROL"
+    score_key = metric_base_key()
+    loss_key = metric_loss_key()
     successes = [rep for rep in replicates if rep["status"] == "passed"]
     legal_successes = [rep for rep in successes if legal_run(rep, score_key)]
     sane_legal_successes = [rep for rep in legal_successes if not rep.get("quarantine_reason")]
     quarantined_successes = [rep for rep in legal_successes if rep.get("quarantine_reason")]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
-    score_key = metric_base_key()
-    loss_key = metric_loss_key()
 
-    mean_post_quant_bpb = mean_or_none(
+    mean_primary_metric = mean_or_none(
         [float(rep["metrics"][score_key]) for rep in sane_legal_successes if score_key in rep["metrics"]]
     )
-    mean_post_quant_loss = mean_or_none(
+    mean_primary_loss = mean_or_none(
         [float(rep["metrics"][loss_key]) for rep in sane_legal_successes if loss_key in rep["metrics"]]
     )
     mean_total_bytes = mean_or_none(
@@ -188,17 +203,18 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     )
 
     control_bpb = champion_metric(champion, score_key)
-    control_quant_gap = champion_metric(champion, "post_quant_gap_bpb") if "post_quant_gap_bpb" in champion["arm"]["metrics"] or "mean_post_quant_gap_bpb" in champion["arm"]["metrics"] else None
-    control_total_bytes = champion_metric(champion, "artifact_bytes_total") if "artifact_bytes_total" in champion["arm"]["metrics"] or "mean_artifact_bytes_total" in champion["arm"]["metrics"] else None
-    control_step_avg_ms = champion_metric(champion, "step_avg_ms") if "step_avg_ms" in champion["arm"]["metrics"] or "mean_step_avg_ms" in champion["arm"]["metrics"] else None
+    control_loss = champion_metric_or_none(champion, loss_key)
+    control_quant_gap = champion_metric_or_none(champion, "post_quant_gap_bpb")
+    control_total_bytes = champion_metric_or_none(champion, "artifact_bytes_total")
+    control_step_avg_ms = champion_metric_or_none(champion, "step_avg_ms")
     treatment_success_rate = len(successes) / len(replicates) if replicates else 0.0
     legal_success_rate = len(legal_successes) / len(replicates) if replicates else 0.0
     sane_legal_success_rate = len(sane_legal_successes) / len(replicates) if replicates else 0.0
-    delta_bpb = mean_post_quant_bpb - control_bpb if mean_post_quant_bpb is not None else None
+    delta_bpb = mean_primary_metric - control_bpb if mean_primary_metric is not None else None
 
     status = "treatment_failed"
-    if mean_post_quant_bpb is not None and sane_legal_successes:
-        status = "treatment_improved" if mean_post_quant_bpb < control_bpb else "treatment_regressed"
+    if mean_primary_metric is not None and sane_legal_successes:
+        status = "treatment_improved" if mean_primary_metric < control_bpb else "treatment_regressed"
     elif legal_successes and quarantined_successes and not sane_legal_successes:
         status = "treatment_quarantined"
     elif successes and not legal_successes:
@@ -231,6 +247,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "summary_run_id": champion.get("summary_run_id", ""),
             "arm_run_id": champion.get("arm_run_id", ""),
             "comparison_json": champion.get("comparison_json", ""),
+            "control_class": champion.get("control_class", champion.get("status", "unknown")),
+            "evidence_level": champion.get("evidence_level", "unknown"),
+            "rules_status": champion.get("rules_status", "unknown"),
+            "compute_scope": champion.get("compute_scope", "unknown"),
+            "promotion_eligible": champion.get("promotion_eligible", False),
             "primary_metric_key": score_key,
             "primary_loss_key": loss_key,
         },
@@ -263,12 +284,14 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         },
         "summary_metrics": {
             "primary_control_val_bpb": control_bpb,
-            "primary_control_val_loss": champion_metric(champion, loss_key),
-            "primary_treatment_mean_val_bpb": mean_post_quant_bpb,
-            "primary_treatment_mean_val_loss": mean_post_quant_loss,
+            "primary_control_val_loss": control_loss,
+            "primary_treatment_mean_val_bpb": mean_primary_metric,
+            "primary_treatment_mean_val_loss": mean_primary_loss,
             "primary_treatment_delta_bpb": delta_bpb,
-            "control_post_quant_val_bpb": control_bpb,
-            "control_post_quant_val_loss": champion_metric(champion, loss_key),
+            "control_metric_key": score_key,
+            "control_metric_loss_key": loss_key,
+            "control_primary_metric_value": control_bpb,
+            "control_primary_loss_value": control_loss,
             "control_post_quant_gap_bpb": control_quant_gap,
             "control_artifact_bytes_total": control_total_bytes,
             "control_step_avg_ms": control_step_avg_ms,
@@ -276,8 +299,8 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "treatment_legal_success_rate": legal_success_rate,
             "treatment_sane_legal_success_rate": sane_legal_success_rate,
             "treatment_quarantined_runs": len(quarantined_successes),
-            "treatment_mean_post_quant_val_bpb": mean_post_quant_bpb,
-            "treatment_mean_post_quant_val_loss": mean_post_quant_loss,
+            "treatment_primary_metric_value": mean_primary_metric,
+            "treatment_primary_loss_value": mean_primary_loss,
             "treatment_mean_post_quant_gap_bpb": mean_quant_gap,
             "treatment_mean_total_submission_bytes": mean_total_bytes,
             "treatment_mean_step_avg_ms": mean_step_avg_ms,
@@ -293,8 +316,8 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                 "run_name": f"{treatment_slug}_battle_{battle_id}",
                 "status": status,
                 "metrics": {
-                    "mean_post_quant_val_bpb": mean_post_quant_bpb,
-                    "mean_post_quant_val_loss": mean_post_quant_loss,
+                    "mean_primary_metric_value": mean_primary_metric,
+                    "mean_primary_loss_value": mean_primary_loss,
                     "mean_post_quant_gap_bpb": mean_quant_gap,
                     "mean_total_submission_bytes": mean_total_bytes,
                     "mean_step_avg_ms": mean_step_avg_ms,

@@ -58,7 +58,9 @@ BYTES_MODEL_RAW_RE = re.compile(r"Serialized model: (?P<value>\d+) bytes")
 EVAL_TIME_RE = re.compile(r"eval_time:(?P<value>\d+)ms")
 SEED_RE = re.compile(r"seed:(?P<seed>\d+)")
 OOM_RE = re.compile(r"(CUDA out of memory|OutOfMemoryError)")
-EVAL_MODE_RE = re.compile(r"final_eval_mode:(?P<mode>[a-zA-Z_]+)\s+stride:(?P<stride>\d+)\s+batch_seqs:(?P<batch>\d+)")
+EVAL_MODE_RE = re.compile(
+    r"final_eval_mode:(?P<mode>[a-zA-Z_]+)(?:\s+stride:(?P<stride>\d+)\s+batch_seqs:(?P<batch>\d+))?"
+)
 PEAK_MEM_RE = re.compile(
     r"peak memory allocated: (?P<allocated>\d+) MiB reserved: (?P<reserved>\d+) MiB"
 )
@@ -67,6 +69,11 @@ WORLD_SIZE_RE = re.compile(r"world_size:(?P<world_size>\d+)\s+grad_accum_steps:(
 SDP_BACKENDS_RE = re.compile(
     r"sdp_backends:cudnn=(?P<cudnn>\w+)\s+flash=(?P<flash>\w+)\s+mem_efficient=(?P<mem_efficient>\w+)\s+math=(?P<math>\w+)"
 )
+EMA_STATE_RE = re.compile(r"ema_state_tensors:(?P<count>\d+)\s+ema_decay:(?P<decay>[0-9.]+)")
+EXPORT_STATE_RE = re.compile(
+    r"export_state_tensors:(?P<export>\d+)\s+model_state_tensors:(?P<model>\d+)\s+ema_enabled:(?P<ema>[01])"
+)
+LATE_QAT_RE = re.compile(r"late_qat:enabled step:(?P<step>\d+)\s+scale:(?P<scale>[0-9.]+)")
 
 
 def _to_number(value: str) -> float | int:
@@ -105,6 +112,22 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         result["params"]["sdp_backend_flash"] = sdp_backends_match.group("flash") == "True"
         result["params"]["sdp_backend_mem_efficient"] = sdp_backends_match.group("mem_efficient") == "True"
         result["params"]["sdp_backend_math"] = sdp_backends_match.group("math") == "True"
+
+    ema_state_match = EMA_STATE_RE.search(text)
+    if ema_state_match:
+        result["params"]["ema_state_tensors"] = int(ema_state_match.group("count"))
+        result["params"]["ema_decay"] = float(ema_state_match.group("decay"))
+
+    export_state_match = EXPORT_STATE_RE.search(text)
+    if export_state_match:
+        result["params"]["export_state_tensors"] = int(export_state_match.group("export"))
+        result["params"]["model_state_tensors"] = int(export_state_match.group("model"))
+        result["params"]["ema_enabled"] = bool(int(export_state_match.group("ema")))
+
+    late_qat_match = LATE_QAT_RE.search(text)
+    if late_qat_match:
+        result["params"]["late_qat_enabled_step"] = int(late_qat_match.group("step"))
+        result["params"]["late_qat_enabled_scale"] = float(late_qat_match.group("scale"))
 
     step_matches = list(STEP_RE.finditer(text))
     if step_matches:
@@ -200,6 +223,8 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         result["metrics"]["artifact_bytes_total_raw"] = int(total_bytes_raw.group("value"))
     model_bytes = BYTES_MODEL_RE.search(text)
     if model_bytes:
+        result["metrics"]["artifact_bytes_model_quantized"] = int(model_bytes.group("value"))
+        # Backward-compatible alias for older consumers.
         result["metrics"]["artifact_bytes_model_int8_zlib"] = int(model_bytes.group("value"))
     model_bytes_raw = BYTES_MODEL_RAW_RE.search(text)
     if model_bytes_raw:
@@ -217,13 +242,21 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
     eval_mode = EVAL_MODE_RE.search(text)
     if eval_mode:
         result["params"]["eval_mode"] = eval_mode.group("mode")
-        result["metrics"]["eval_stride"] = int(eval_mode.group("stride"))
-        result["metrics"]["eval_batch_seqs"] = int(eval_mode.group("batch"))
+        if eval_mode.group("stride") is not None:
+            result["metrics"]["eval_stride"] = int(eval_mode.group("stride"))
+        if eval_mode.group("batch") is not None:
+            result["metrics"]["eval_batch_seqs"] = int(eval_mode.group("batch"))
 
     if OOM_RE.search(text):
         result["status"] = "failed"
         result["failure_kind"] = "cuda_oom"
-        result["failure_stage"] = "post_quant_sliding_eval" if "final_eval_mode" in text else "training_or_eval"
+        eval_mode_value = result["params"].get("eval_mode")
+        if eval_mode_value == "sliding_window":
+            result["failure_stage"] = "post_quant_sliding_eval"
+        elif eval_mode_value == "standard":
+            result["failure_stage"] = "post_quant_standard_eval"
+        else:
+            result["failure_stage"] = "training_or_eval"
         result["failure_message"] = "CUDA OOM detected in log"
     elif result["status"] == "unknown" and step_matches:
         result["status"] = "incomplete"

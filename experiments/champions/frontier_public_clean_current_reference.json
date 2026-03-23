@@ -1,0 +1,58 @@
+{
+  "champion_id": "pg_arena_frontier_public_clean_reference_2026_03_23_pr569",
+  "date": "2026-03-23",
+  "experiment_name": "parameter-golf-public-frontier-clean-reference",
+  "experiment_id": "public-pr569-clean",
+  "summary_run_id": "public-pr569-clean",
+  "arm_run_id": "public-pr569-clean",
+  "comparison_json": "https://github.com/openai/parameter-golf/pull/569",
+  "source_url": "https://github.com/openai/parameter-golf/pull/569",
+  "control_class": "clean_public_reference",
+  "evidence_level": "public_open_pr_three_seed",
+  "rules_status": "clean_non_ttt",
+  "compute_scope": "public_8xh100_reference",
+  "promotion_eligible": false,
+  "artifacts_present": false,
+  "metric_complete": true,
+  "paired_local_control_id": "local-pr569-port-pending",
+  "arm": {
+    "arm_id": "CONTROL",
+    "run_name": "public_pr569_clean_reference",
+    "status": "public_record_reference",
+    "metrics": {
+      "train_step_final_val_bpb": 1.1385,
+      "post_quant_val_bpb": 1.1175,
+      "post_quant_gap_bpb": -0.021,
+      "sliding_window_val_bpb": 1.1175,
+      "artifact_bytes_total": 15940000,
+      "success_rate": 1.0
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "train_shards": 80,
+      "train_batch_tokens": 786432,
+      "train_seq_len": 2048,
+      "eval_seq_len": 2048,
+      "eval_stride": 64,
+      "iterations": 20000,
+      "eval_mode": "sliding_window",
+      "treatment_name": "public_pr569_clean_reference"
+    },
+    "notes": {
+      "source_pr": 569,
+      "source_summary": "11L VRL + LeakyReLU(0.5)^2 + Full GPTQ",
+      "mean_over_seeds": [
+        42,
+        1337,
+        2024
+      ],
+      "key_deltas_vs_pr535": {
+        "value_residual_learning": true,
+        "leaky_relu_squared": true,
+        "full_gptq": true,
+        "qat_export_alignment": true,
+        "magnitude_pruning_2pct": true
+      }
+    }
+  }
+}
