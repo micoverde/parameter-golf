@@ -20,8 +20,14 @@ FINAL_RE = re.compile(
 FINAL_INT6_RE = re.compile(
     r"final_int6_roundtrip_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
 )
+FINAL_INT6_ZSTD_RE = re.compile(
+    r"final_int6_zstd_roundtrip_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
+)
 FINAL_INT6_WITH_TIME_RE = re.compile(
     r"final_int6_roundtrip val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
+)
+FINAL_INT6_ZSTD_WITH_TIME_RE = re.compile(
+    r"final_int6_zstd_roundtrip val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
 )
 FINAL_SLIDING_RE = re.compile(
     r"final_sliding_window_exact val_loss:(?P<val_loss>[0-9.]+)\s+val_bpb:(?P<val_bpb>[0-9.]+)"
@@ -74,6 +80,19 @@ EXPORT_STATE_RE = re.compile(
     r"export_state_tensors:(?P<export>\d+)\s+model_state_tensors:(?P<model>\d+)\s+ema_enabled:(?P<ema>[01])"
 )
 LATE_QAT_RE = re.compile(r"late_qat:enabled step:(?P<step>\d+)\s+scale:(?P<scale>[0-9.]+)")
+MODEL_TOTAL_COMPACT_RE = re.compile(r"model:(?P<model>\d+)\s+code:(?P<code>\d+)\s+total:(?P<total>\d+)")
+PRUNE_RE = re.compile(
+    r"prune:zeroed\s+(?P<zeroed>\d+)/(?P<total>\d+)\s+int6 weights\s+\((?P<pct>[0-9.]+)%\)\s+threshold=(?P<threshold>-?[0-9.]+)"
+)
+STAGE_METRIC_RE = re.compile(
+    r"STAGE_METRIC\s+name:(?P<name>[a-zA-Z0-9_]+)\s+val_loss:(?P<val_loss>-?[0-9.]+)\s+val_bpb:(?P<val_bpb>-?[0-9.]+)\s+eval_time:(?P<eval_time_ms>\d+)ms"
+)
+STAGE_STATE_RE = re.compile(
+    r"STAGE_STATE\s+name:(?P<name>[a-zA-Z0-9_]+)\s+ref:(?P<ref>[a-zA-Z0-9_]+)\s+tensors:(?P<tensors>\d+)\s+norm_ratio:(?P<norm_ratio>[a-zA-Z0-9.eE+-]+)\s+cosine:(?P<cosine>[a-zA-Z0-9.eE+-]+)"
+)
+QUANT_STATS_RE = re.compile(
+    r"QUANT_STATS\s+stage:(?P<stage>[a-zA-Z0-9_]+)\s+tensors:(?P<tensors>\d+)\s+int6_tensors:(?P<int6_tensors>\d+)\s+int8_tensors:(?P<int8_tensors>\d+)\s+scale_min:(?P<scale_min>[a-zA-Z0-9.eE+-]+)\s+scale_p50:(?P<scale_p50>[a-zA-Z0-9.eE+-]+)\s+scale_max:(?P<scale_max>[a-zA-Z0-9.eE+-]+)\s+clip_frac:(?P<clip_frac>[a-zA-Z0-9.eE+-]+)\s+near_zero_frac:(?P<near_zero_frac>[a-zA-Z0-9.eE+-]+)"
+)
 
 
 def _to_number(value: str) -> float | int:
@@ -156,7 +175,7 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         )
         result["params"].setdefault("iterations", int(last_train.group("iterations")))
 
-    final_match = FINAL_RE.search(text) or FINAL_INT6_RE.search(text)
+    final_match = FINAL_RE.search(text) or FINAL_INT6_RE.search(text) or FINAL_INT6_ZSTD_RE.search(text)
     if final_match:
         result["metrics"]["post_quant_val_loss"] = float(final_match.group("val_loss"))
         result["metrics"]["post_quant_val_bpb"] = float(final_match.group("val_bpb"))
@@ -200,7 +219,7 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
         result["metrics"]["post_ema_val_bpb"] = float(post_ema_match.group("val_bpb"))
         result["metrics"]["post_ema_eval_time_ms"] = int(post_ema_match.group("eval_time_ms"))
 
-    post_quant_time_match = FINAL_INT6_WITH_TIME_RE.search(text)
+    post_quant_time_match = FINAL_INT6_WITH_TIME_RE.search(text) or FINAL_INT6_ZSTD_WITH_TIME_RE.search(text)
     if post_quant_time_match:
         result["metrics"]["post_quant_eval_time_ms"] = int(post_quant_time_match.group("eval_time_ms"))
 
@@ -221,6 +240,12 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
     total_bytes_raw = BYTES_TOTAL_RAW_RE.search(text)
     if total_bytes_raw:
         result["metrics"]["artifact_bytes_total_raw"] = int(total_bytes_raw.group("value"))
+    model_total_compact = MODEL_TOTAL_COMPACT_RE.search(text)
+    if model_total_compact:
+        result["metrics"]["artifact_bytes_model_quantized"] = int(model_total_compact.group("model"))
+        result["metrics"]["artifact_bytes_model_int8_zlib"] = int(model_total_compact.group("model"))
+        result["metrics"]["artifact_bytes_code"] = int(model_total_compact.group("code"))
+        result["metrics"]["artifact_bytes_total"] = int(model_total_compact.group("total"))
     model_bytes = BYTES_MODEL_RE.search(text)
     if model_bytes:
         result["metrics"]["artifact_bytes_model_quantized"] = int(model_bytes.group("value"))
@@ -246,6 +271,37 @@ def parse_train_log(path: str | Path) -> dict[str, Any]:
             result["metrics"]["eval_stride"] = int(eval_mode.group("stride"))
         if eval_mode.group("batch") is not None:
             result["metrics"]["eval_batch_seqs"] = int(eval_mode.group("batch"))
+
+    prune_match = PRUNE_RE.search(text)
+    if prune_match:
+        result["metrics"]["pruned_int6_weights"] = int(prune_match.group("zeroed"))
+        result["metrics"]["pruned_int6_total_weights"] = int(prune_match.group("total"))
+        result["metrics"]["pruned_int6_fraction"] = float(prune_match.group("pct")) / 100.0
+        result["metrics"]["pruned_int6_threshold"] = float(prune_match.group("threshold"))
+
+    for stage_match in STAGE_METRIC_RE.finditer(text):
+        stage_name = stage_match.group("name")
+        result["metrics"][f"stage_{stage_name}_val_loss"] = float(stage_match.group("val_loss"))
+        result["metrics"][f"stage_{stage_name}_val_bpb"] = float(stage_match.group("val_bpb"))
+        result["metrics"][f"stage_{stage_name}_eval_time_ms"] = int(stage_match.group("eval_time_ms"))
+
+    for state_match in STAGE_STATE_RE.finditer(text):
+        stage_name = state_match.group("name")
+        result["metrics"][f"stage_{stage_name}_ref"] = state_match.group("ref")
+        result["metrics"][f"stage_{stage_name}_tensors"] = int(state_match.group("tensors"))
+        result["metrics"][f"stage_{stage_name}_norm_ratio"] = float(state_match.group("norm_ratio"))
+        result["metrics"][f"stage_{stage_name}_cosine"] = float(state_match.group("cosine"))
+
+    for quant_match in QUANT_STATS_RE.finditer(text):
+        stage_name = quant_match.group("stage")
+        result["metrics"][f"quant_{stage_name}_tensors"] = int(quant_match.group("tensors"))
+        result["metrics"][f"quant_{stage_name}_int6_tensors"] = int(quant_match.group("int6_tensors"))
+        result["metrics"][f"quant_{stage_name}_int8_tensors"] = int(quant_match.group("int8_tensors"))
+        result["metrics"][f"quant_{stage_name}_scale_min"] = float(quant_match.group("scale_min"))
+        result["metrics"][f"quant_{stage_name}_scale_p50"] = float(quant_match.group("scale_p50"))
+        result["metrics"][f"quant_{stage_name}_scale_max"] = float(quant_match.group("scale_max"))
+        result["metrics"][f"quant_{stage_name}_clip_frac"] = float(quant_match.group("clip_frac"))
+        result["metrics"][f"quant_{stage_name}_near_zero_frac"] = float(quant_match.group("near_zero_frac"))
 
     if OOM_RE.search(text):
         result["status"] = "failed"

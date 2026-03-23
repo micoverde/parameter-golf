@@ -72,7 +72,7 @@ def champion_metric_or_none(champion: dict[str, Any], base_key: str) -> float | 
 
 
 def metric_base_key() -> str:
-    return os.environ.get("METRIC_BASE_KEY", "post_quant_val_bpb")
+    return os.environ.get("METRIC_BASE_KEY", "sliding_window_val_bpb")
 
 
 def metric_loss_key() -> str:
@@ -82,6 +82,14 @@ def metric_loss_key() -> str:
     if base_key == "ttt_lora_val_bpb":
         return "ttt_lora_val_loss"
     return os.environ.get("METRIC_LOSS_KEY", "post_quant_val_loss")
+
+
+def optional_path_env(name: str) -> str:
+    raw = os.environ.get(name, "").strip()
+    if not raw:
+        return ""
+    path = Path(raw)
+    return str(path if path.is_absolute() else (REPO_DIR / path))
 
 
 def legal_run(rep: dict[str, Any], score_key: str) -> bool:
@@ -185,6 +193,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
     quarantined_successes = [rep for rep in legal_successes if rep.get("quarantine_reason")]
     treatment_slug = treatment_name()
     treatment_script_target = treatment_target()
+    train_path_id = os.environ.get("TRAIN_PATH_ID", treatment_slug)
+    export_path_id = os.environ.get("EXPORT_PATH_ID", treatment_slug)
+    eval_profile_id = os.environ.get("EVAL_PROFILE_ID", score_key)
+    rules_profile = os.environ.get("RULES_PROFILE", champion.get("rules_status", "unknown"))
+    ttt_compliance_mode = os.environ.get("TTT_COMPLIANCE_MODE", "none")
 
     mean_primary_metric = mean_or_none(
         [float(rep["metrics"][score_key]) for rep in sane_legal_successes if score_key in rep["metrics"]]
@@ -227,6 +240,7 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
         "arena_tier": "tier1_battle",
         "lane_name": lane_name(),
         "comparison_mode": "lexicographic_contest",
+        "promotion_decision_mode": "manual_review_required",
         "primary_metric_key": score_key,
         "primary_loss_key": loss_key,
         "control_arm": "CONTROL",
@@ -255,6 +269,21 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "primary_metric_key": score_key,
             "primary_loss_key": loss_key,
         },
+        "reference_roles": {
+            "public_reference_path": optional_path_env("PUBLIC_REFERENCE_PATH")
+            or str(champion_path().resolve()),
+            "local_executable_control_path": optional_path_env("LOCAL_EXECUTABLE_CONTROL_PATH"),
+            "proxy_control_path": optional_path_env("PROXY_CONTROL_PATH"),
+            "historical_scaffold_path": optional_path_env("HISTORICAL_SCAFFOLD_PATH"),
+            "provisional_watch_path": optional_path_env("PROVISIONAL_WATCH_PATH"),
+        },
+        "execution_profile": {
+            "train_path_id": train_path_id,
+            "export_path_id": export_path_id,
+            "eval_profile_id": eval_profile_id,
+            "rules_profile": rules_profile,
+            "ttt_compliance_mode": ttt_compliance_mode,
+        },
         "provenance": {
             "pod_id": os.environ.get("POD_ID", ""),
             "gpu_type": os.environ.get("GPU_TYPE", ""),
@@ -269,6 +298,18 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "sdp_backend_mem_efficient": consistent_param(replicates, "sdp_backend_mem_efficient"),
             "sdp_backend_math": consistent_param(replicates, "sdp_backend_math"),
             "guide_source": "/tmp/plexor-main-arena-doc/docs/guides/ARENA_OPS_AND_DEVELOPMENT_GUIDE.md",
+            "backend_fingerprint": {
+                "gpu_type": os.environ.get("GPU_TYPE", ""),
+                "image_name": os.environ.get("IMAGE_NAME", "runpod/parameter-golf:latest"),
+                "pytorch_version": os.environ.get("PYTORCH_VERSION", ""),
+                "cuda_version": os.environ.get("CUDA_VERSION", ""),
+                "compile_enabled": consistent_param(replicates, "compile_enabled"),
+                "flash_attn_available": consistent_param(replicates, "flash_attn_available"),
+                "sdp_backend_cudnn": consistent_param(replicates, "sdp_backend_cudnn"),
+                "sdp_backend_flash": consistent_param(replicates, "sdp_backend_flash"),
+                "sdp_backend_mem_efficient": consistent_param(replicates, "sdp_backend_mem_efficient"),
+                "sdp_backend_math": consistent_param(replicates, "sdp_backend_math"),
+            },
         },
         "fixture": {
             "dataset_variant": os.environ.get("DATASET_VARIANT", "fineweb10B_sp1024"),
@@ -308,6 +349,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
             "treatment_failures": len(replicates) - len(successes),
             "artifact_floor_bytes": env_int("ARTIFACT_FLOOR_BYTES", 0),
             "quant_gap_quarantine_bpb": env_float("QUANT_GAP_QUARANTINE_BPB", math.inf),
+            "train_path_id": train_path_id,
+            "export_path_id": export_path_id,
+            "eval_profile_id": eval_profile_id,
+            "rules_profile": rules_profile,
+            "ttt_compliance_mode": ttt_compliance_mode,
         },
         "arms": [
             champion_arm,
@@ -330,6 +376,11 @@ def build_summary(battle_id: str, replicates: list[dict[str, Any]]) -> dict[str,
                     "metric_loss_key": loss_key,
                     "artifact_floor_bytes": env_int("ARTIFACT_FLOOR_BYTES", 0),
                     "quant_gap_quarantine_bpb": env_float("QUANT_GAP_QUARANTINE_BPB", math.inf),
+                    "train_path_id": train_path_id,
+                    "export_path_id": export_path_id,
+                    "eval_profile_id": eval_profile_id,
+                    "rules_profile": rules_profile,
+                    "ttt_compliance_mode": ttt_compliance_mode,
                 },
                 "params": {
                     "train_batch_tokens": env_int("TRAIN_BATCH_TOKENS", 393216),
