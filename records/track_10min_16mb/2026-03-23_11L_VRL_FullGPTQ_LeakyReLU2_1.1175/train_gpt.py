@@ -89,6 +89,7 @@ class Hyperparameters:
     ve_enabled = bool(int(os.environ.get("VE_ENABLED", "1")))
     ve_dim = int(os.environ.get("VE_DIM", 128))
     ve_layers = os.environ.get("VE_LAYERS", "9,10")
+    full_gptq_enabled = bool(int(os.environ.get("FULL_GPTQ_ENABLED", "1")))
     # GPTQ calibration
     gptq_calib_batches = int(os.environ.get("GPTQ_CALIB_BATCHES", 256))
     gptq_block_size = int(os.environ.get("GPTQ_BLOCK_SIZE", 128))
@@ -898,7 +899,8 @@ def main():
     n_params = sum(p.numel() for p in base_model.parameters())
     xsa_layers = [i for i in range(args.num_layers) if i >= args.num_layers - args.xsa_last_n] if args.xsa_last_n > 0 else []
     log0(f"model_params:{n_params}"); log0(f"world_size:{world_size} grad_accum_steps:{grad_accum_steps}")
-    log0(f"v42: 11L LeakyReLU(0.5)² Late-QAT@{args.late_qat_threshold} int6-all FullGPTQ EMA({args.ema_decay}) TightSWA XSA-all({args.xsa_last_n}) PartialRoPE({args.rope_dims}/64) LNScale VE128 SmearGate BigramHash({args.bigram_vocab_size}) QATalign({args.qat_clip_pct}) VRL Prune({args.prune_pct}) RawBinary")
+    gptq_mode = "FullGPTQ" if args.full_gptq_enabled else "GPTQliteFallback"
+    log0(f"v42: 11L LeakyReLU(0.5)² Late-QAT@{args.late_qat_threshold} int6-all {gptq_mode} EMA({args.ema_decay}) TightSWA XSA-all({args.xsa_last_n}) PartialRoPE({args.rope_dims}/64) LNScale VE128 SmearGate BigramHash({args.bigram_vocab_size}) QATalign({args.qat_clip_pct}) VRL Prune({args.prune_pct}) RawBinary")
     log0(f"XSA:last_{args.xsa_last_n} layers:{xsa_layers}")
     log0(f"FA3:{HAS_FA3} SWA:{args.swa_enabled} warmdown:{args.warmdown_iters} adam_wd:{args.adam_wd}")
     train_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
@@ -1010,19 +1012,22 @@ def main():
     log_state_similarity("post_ema", "raw_final", raw_state, avg_state)
 
     # v41: GPTQ calibration — collect Hessians AFTER applying EMA weights
-    log0(f"gptq:calibrating with {args.gptq_calib_batches} batches...")
-    calib_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
-    hessians = collect_hessians(base_model, calib_loader, args, device, grad_accum_steps,
-                                num_batches=args.gptq_calib_batches)
-    # Map module names to state_dict names for Hessian lookup
     hessian_map = {}
-    for name, module in base_model.named_modules():
-        if isinstance(module, CastedLinear):
-            sd_name = name + ".weight"
-            h_name = name + ".weight"
-            if h_name in hessians:
-                hessian_map[sd_name] = hessians[h_name]
-    log0(f"gptq:collected hessians for {len(hessian_map)} layers")
+    if args.full_gptq_enabled:
+        log0(f"gptq:calibrating with {args.gptq_calib_batches} batches...")
+        calib_loader = DistributedTokenLoader(args.train_files, rank, world_size, device)
+        hessians = collect_hessians(base_model, calib_loader, args, device, grad_accum_steps,
+                                    num_batches=args.gptq_calib_batches)
+        # Map module names to state_dict names for Hessian lookup
+        for name, module in base_model.named_modules():
+            if isinstance(module, CastedLinear):
+                sd_name = name + ".weight"
+                h_name = name + ".weight"
+                if h_name in hessians:
+                    hessian_map[sd_name] = hessians[h_name]
+        log0(f"gptq:collected hessians for {len(hessian_map)} layers")
+    else:
+        log0("gptq:full_disabled using GPTQ-lite fallback for all eligible tensors")
 
     # QUANTIZE + SAVE (raw binary serialization)
     sd_cpu = {k: v.detach().cpu() for k, v in base_model.state_dict().items()}
