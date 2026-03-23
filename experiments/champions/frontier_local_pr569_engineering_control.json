@@ -1,0 +1,42 @@
+{
+  "control_id": "local-pr569-engineering-2026-03-23",
+  "date": "2026-03-23",
+  "control_class": "clean_local_executable_control",
+  "paired_public_reference_id": "pg_arena_frontier_public_clean_reference_2026_03_23_pr569",
+  "comparison_json": "experiments/arena_runs/2026-03-23_pr569_control_directional_telemetry.json",
+  "source_log": "logs/azure_pr569_engineering_20260323_153917.log",
+  "source_metrics": "logs/azure_pr569_engineering_20260323_153917.json",
+  "rules_status": "directional_engineering_only",
+  "compute_scope": "azure_1xh100_directional",
+  "promotion_eligible": false,
+  "metric_complete": true,
+  "arm": {
+    "arm_id": "LOCAL_CONTROL",
+    "run_name": "pr569_single_h100_control_directional",
+    "status": "passed",
+    "metrics": {
+      "train_step_final_val_bpb": 1.2481,
+      "stage_raw_final_val_bpb": 1.24805673,
+      "stage_post_ema_val_bpb": 1.26288187,
+      "post_quant_val_bpb": 1.29065438,
+      "sliding_window_val_bpb": 1.29065438,
+      "post_quant_gap_bpb": 0.04255438,
+      "artifact_bytes_total": 9529459,
+      "step_avg_ms": 1128.99,
+      "success_rate": 1.0
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "eval_stride": 64,
+      "seed": 1337,
+      "backend_fingerprint": "torch2.5.1+cu124_h100nvl_directional",
+      "treatment_name": "pr569_clean_control_directional"
+    },
+    "notes": {
+      "branch": "feature/pr569-frontier-port",
+      "commit": "50db91e",
+      "summary": "First stable local PR569 engineering run with stage-local diagnostics and GPTQ export stats.",
+      "use": "Local engineering scaffold only. Do not compare directly to 8xH100 public scores."
+    }
+  }
+}

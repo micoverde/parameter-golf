@@ -1,0 +1,143 @@
+{
+  "comparison_id": "pg_arena_pr569_directional_2026_03_23_control_telemetry",
+  "title": "PR569 clean control directional telemetry on Azure 1xH100",
+  "date": "2026-03-23",
+  "arena_tier": "rung1_directional",
+  "lane_name": "public_frontier_pr569_clean",
+  "comparison_mode": "lexicographic_contest",
+  "control_arm": "PUBLIC_CONTROL",
+  "treatment_arm": "DIRECTIONAL_TELEMETRY",
+  "status": "directional_control_failed_submission_quality_but_sane_engineering_path",
+  "tracking_uri": "https://ca-mlflow-alpha.calmcliff-5a10adea.westus2.azurecontainerapps.io",
+  "repo": {
+    "name": "parameter-golf",
+    "fork_url": "https://github.com/micoverde/parameter-golf.git",
+    "branch": "feature/pr569-frontier-port",
+    "commit": "50db91e",
+    "control_script": "records/track_10min_16mb/2026-03-23_11L_VRL_FullGPTQ_LeakyReLU2_1.1175/train_gpt.py",
+    "treatment_script": "run_single_h100_control.sh"
+  },
+  "provenance": {
+    "pod_id": "parameter-golf-h100",
+    "gpu_type": "NVIDIA H100 NVL 96GB",
+    "template_id": "Standard_NC40ads_H100_v5",
+    "image_name": "azure-ubuntu2204-driver535-pytorch2.5.1",
+    "backend_fingerprint": "torch2.5.1+cu124_h100nvl_fa3_or_sdpa_runtime_unverified",
+    "battle_id": "pr569_control_directional_telemetry",
+    "guide_source": "Parameter Golf: ARENA Execution Playbook v4"
+  },
+  "fixture": {
+    "dataset_variant": "fineweb10B_sp1024",
+    "train_shards": 80,
+    "train_batch_tokens": 786432,
+    "train_seq_len": 2048,
+    "eval_seq_len": 2048,
+    "eval_stride": 64,
+    "iterations": 20000,
+    "warmup_steps": 20,
+    "max_wallclock_seconds": 1800,
+    "replicates_per_arm": 1,
+    "compute_scope": "directional_only",
+    "seed": 1337
+  },
+  "primary_metric_key": "stage_sliding_window_val_bpb",
+  "primary_loss_key": "stage_sliding_window_val_loss",
+  "summary_metrics": {
+    "public_clean_sliding_window_val_bpb": 1.1175,
+    "directional_pre_quant_val_bpb": 1.24805673,
+    "directional_post_ema_val_bpb": 1.26288187,
+    "directional_post_quant_val_bpb": 1.29065438,
+    "directional_sliding_window_val_bpb": 1.29065438,
+    "directional_post_quant_gap_bpb": 0.04255438,
+    "directional_artifact_bytes_total": 9529459,
+    "directional_step_avg_ms": 1128.99,
+    "directional_vs_public_clean_delta_bpb": 0.17315438,
+    "directional_success_rate": 1.0,
+    "directional_failures": 0
+  },
+  "next_action": {
+    "recommendation": "use_pr569_as_local_clean_engineering_control_then_ablate_export_alignment",
+    "reason": "The PR569 engineering path stayed stable through raw, EMA, GPTQ export, and sliding evaluation on 1xH100, materially outperforming the prior PR414 engineering baseline. The next clean diagnostics should isolate exporter-path deltas such as Full GPTQ, QAT-export alignment, and pruning on the same checkpoint lineage."
+  },
+  "arms": [
+    {
+      "arm_id": "PUBLIC_CONTROL",
+      "run_name": "public_pr569_clean_reference",
+      "status": "public_record_reference",
+      "metrics": {
+        "sliding_window_val_bpb": 1.1175,
+        "post_quant_val_bpb": 1.1175,
+        "artifact_bytes_total": 15940000,
+        "success_rate": 1.0
+      },
+      "params": {
+        "eval_stride": 64,
+        "treatment_name": "public_pr569_clean_reference"
+      },
+      "failure_kind": null,
+      "failure_stage": null,
+      "failure_message": null,
+      "log_path": "https://github.com/openai/parameter-golf/pull/569"
+    },
+    {
+      "arm_id": "DIRECTIONAL_TELEMETRY",
+      "run_name": "pr569_single_h100_control_directional",
+      "status": "passed",
+      "metrics": {
+        "train_step_final": 1595,
+        "train_step_final_val_loss": 2.1073,
+        "train_step_final_val_bpb": 1.2481,
+        "train_time_ms": 1580585,
+        "step_avg_ms": 1128.99,
+        "stage_raw_final_val_loss": 2.10729150,
+        "stage_raw_final_val_bpb": 1.24805673,
+        "stage_post_ema_val_loss": 2.13232315,
+        "stage_post_ema_val_bpb": 1.26288187,
+        "stage_post_ema_norm_ratio": 0.980213,
+        "stage_post_ema_cosine": 0.996813,
+        "post_quant_val_loss": 2.17921585,
+        "post_quant_val_bpb": 1.29065438,
+        "stage_sliding_window_val_loss": 2.17921585,
+        "stage_sliding_window_val_bpb": 1.29065438,
+        "artifact_bytes_total": 9529459,
+        "artifact_bytes_model_int8_zlib": 9462874,
+        "artifact_bytes_code": 66585,
+        "eval_time_ms": 818956,
+        "peak_memory_allocated_mib": 25927,
+        "peak_memory_reserved_mib": 26676,
+        "post_quant_gap_bpb": 0.04255438,
+        "pruned_int6_fraction": 0.335,
+        "quant_post_quant_export_scale_min": 0.007873535,
+        "quant_post_quant_export_scale_p50": 0.03225708,
+        "quant_post_quant_export_scale_max": 0.06378174,
+        "quant_post_quant_export_clip_frac": 0.00002385581,
+        "quant_post_quant_export_near_zero_frac": 0.3283627
+      },
+      "params": {
+        "dataset_variant": "fineweb10B_sp1024",
+        "train_shards": 80,
+        "train_batch_tokens": 786432,
+        "train_seq_len": 2048,
+        "eval_seq_len": 2048,
+        "eval_stride": 64,
+        "iterations": 20000,
+        "treatment_name": "pr569_clean_control_directional",
+        "compressor": "int6+zstd",
+        "compute_scope": "directional_only",
+        "seed": 1337,
+        "ema_enabled": true,
+        "ema_decay": 0.997,
+        "full_gptq_enabled": true,
+        "late_qat_threshold": 0.15,
+        "xsa_scope": "last_11",
+        "activation": "leaky_relu_half_squared",
+        "value_residual_learning": true,
+        "pruning_fraction_nominal": 0.02
+      },
+      "failure_kind": null,
+      "failure_stage": null,
+      "failure_message": null,
+      "log_path": "logs/azure_pr569_engineering_20260323_153917.log"
+    }
+  ]
+}

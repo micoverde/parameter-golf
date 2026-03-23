@@ -14,7 +14,7 @@
   "promotion_eligible": false,
   "artifacts_present": false,
   "metric_complete": true,
-  "paired_local_control_id": "local-pr569-port-pending",
+  "paired_local_control_id": "local-pr569-engineering-2026-03-23",
   "arm": {
     "arm_id": "CONTROL",
     "run_name": "public_pr569_clean_reference",
