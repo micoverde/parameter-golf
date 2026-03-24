@@ -47,10 +47,10 @@
       ],
       "key_deltas_vs_pr569": {
         "xsa_all_11": true,
-        "parallel_muon": true,
-        "leaky_relu_squared": true,
         "full_gptq": true,
         "selective_pm1_pruning": true,
+        "parallel_muon": true,
+        "leaky_relu_squared": true,
         "lzma_compression": true
       }
     }

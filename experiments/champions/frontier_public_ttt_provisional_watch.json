@@ -1,14 +1,26 @@
 {
-  "watch_id": "pg_arena_frontier_public_ttt_provisional_watch_2026_03_23",
-  "date": "2026-03-23",
+  "watch_id": "pg_arena_frontier_public_ttt_provisional_watch_2026_03_24",
+  "date": "2026-03-24",
   "status": "watch_only_under_rules_scrutiny",
   "issue": 402,
   "controls": [
     {
+      "pr": 606,
+      "score_bpb": 1.1162,
+      "label": "score_first_legal_ttt_int5_gptq_soft_round_qat",
+      "status": "strongest_current_compliant_record_pattern_observed"
+    },
+    {
+      "pr": 545,
+      "score_bpb": 1.1179,
+      "label": "score_first_legal_ttt_int5_gptq",
+      "status": "closed_but_useful_compliant_reference"
+    },
+    {
       "pr": 549,
       "score_bpb": 1.1194,
       "label": "score_first_legal_ttt_parallel_muon",
-      "status": "strongest_compliant_pattern_observed"
+      "status": "clean score_first template with modest gain"
     },
     {
       "pr": 461,
@@ -35,5 +47,5 @@
       "status": "likely_noncompliant_last_epoch_scoring_pattern"
     }
   ],
-  "notes": "Shadow-lane only. Build the causal SCORE->TRAIN->ADVANCE harness from PR461/PR549, but spend near-zero compute on TTT until issue #402 enforcement catches up with the written rule."
+  "notes": "Shadow-lane only. Build the causal SCORE->TRAIN->ADVANCE harness from PR461/PR549/PR545/PR606. Maintainer comments on 2026-03-24 reaffirm that score-first TTT remains valid in theory, while score-every-epoch or rescore-and-keep-best patterns are disallowed."
 }

@@ -7,7 +7,7 @@
   "arm_run_id": "public-pr569-clean",
   "comparison_json": "https://github.com/openai/parameter-golf/pull/569",
   "source_url": "https://github.com/openai/parameter-golf/pull/569",
-  "control_class": "clean_public_reference",
+  "control_class": "clean_public_reference_historical",
   "evidence_level": "public_open_pr_three_seed",
   "rules_status": "clean_non_ttt",
   "compute_scope": "public_8xh100_reference",
@@ -15,6 +15,7 @@
   "artifacts_present": false,
   "metric_complete": true,
   "paired_local_control_id": "local-pr569-engineering-2026-03-23",
+  "superseded_by": "pg_arena_frontier_public_clean_reference_2026_03_24_pr609",
   "arm": {
     "arm_id": "CONTROL",
     "run_name": "public_pr569_clean_reference",
@@ -41,6 +42,7 @@
     "notes": {
       "source_pr": 569,
       "source_summary": "11L VRL + LeakyReLU(0.5)^2 + Full GPTQ",
+      "historical_status": "superseded by PR609 clean non-TTT reference on 2026-03-24",
       "mean_over_seeds": [
         42,
         1337,

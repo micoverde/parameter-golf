@@ -1,0 +1,50 @@
+{
+  "anchor_id": "pg_arena_frontier_public_record_anchor_2026_03_24_pr634",
+  "date": "2026-03-24",
+  "experiment_name": "parameter-golf-public-frontier-record-anchor",
+  "experiment_id": "public-pr634-record",
+  "summary_run_id": "public-pr634-record",
+  "arm_run_id": "public-pr634-record",
+  "comparison_json": "https://github.com/openai/parameter-golf/pull/634",
+  "source_url": "https://github.com/openai/parameter-golf/pull/634",
+  "control_class": "clean_public_record_anchor",
+  "evidence_level": "public_open_pr_three_seed_record",
+  "rules_status": "clean_non_ttt",
+  "compute_scope": "public_8xh100_reference",
+  "promotion_eligible": false,
+  "artifacts_present": false,
+  "metric_complete": true,
+  "arm": {
+    "arm_id": "CONTROL",
+    "run_name": "public_pr634_record_anchor",
+    "status": "public_record_reference",
+    "metrics": {
+      "post_quant_val_bpb": 1.1171,
+      "sliding_window_val_bpb": 1.1171,
+      "artifact_bytes_total": 15921954,
+      "step_avg_ms": 84.2,
+      "success_rate": 1.0
+    },
+    "params": {
+      "dataset_variant": "fineweb10B_sp1024",
+      "train_shards": 80,
+      "train_batch_tokens": 786432,
+      "train_seq_len": 2048,
+      "eval_seq_len": 2048,
+      "eval_stride": 64,
+      "iterations": 20000,
+      "eval_mode": "sliding_window",
+      "treatment_name": "public_pr634_record_anchor"
+    },
+    "notes": {
+      "source_pr": 634,
+      "source_summary": "11L XSA-all + Full GPTQ + Parallel Muon + Selective Pruning",
+      "mean_over_seeds": [
+        1337,
+        42,
+        7
+      ],
+      "use": "Record-grade upstream anchor. Keep separate from PR609 clean reference because PR609 is currently the stronger clean non-TTT public target but remains a non-record PR."
+    }
+  }
+}
